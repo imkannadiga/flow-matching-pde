@@ -43,7 +43,7 @@ sigma_min = 1e-4
 lr = 1e-4
 
 nepoch = 10
-evalint = 5
+evalint = 2
 saveint = 10
 generate = True
 spath = './models/'
@@ -70,7 +70,7 @@ def load_and_prepare(data_location="./"):
 
 def create_model():
     print('Initializing model....')
-    model = FNO(modes, visch, hch, pch)
+    model = FNO(modes, visch, hch, pch, x_dim=xdim, t_scaling=t_scaling)
     model.to(device)
     print(model)
     model_wrapper = FFMModel(model, 
@@ -81,7 +81,7 @@ def create_model():
     return model, model_wrapper
 
 # TODO: Run only if dataset is not present
-download_dataset()
+# download_dataset()
 
 loader_tr, loader_te = load_and_prepare()
 
@@ -101,4 +101,4 @@ model_wrapper.train(loader_tr,
                     save_int=saveint,
                     generate=generate,
                     save_path=spath
-                   )
+                    )

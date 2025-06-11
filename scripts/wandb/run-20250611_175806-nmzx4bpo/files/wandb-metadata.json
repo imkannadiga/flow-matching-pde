@@ -1,0 +1,31 @@
+{
+  "os":  "Windows-11-10.0.26100-SP0",
+  "python":  "CPython 3.13.4",
+  "startedAt":  "2025-06-11T15:58:06.727342Z",
+  "program":  "E:\\FFM\\scripts\\navier_stokes_train.py",
+  "codePath":  "scripts\\navier_stokes_train.py",
+  "git":  {
+    "remote":  "https://github.tik.uni-stuttgart.de/st189828/FFM.git",
+    "commit":  "158f1ffe6b5147f125118c86ae49ca15b0b9bfc2"
+  },
+  "email":  "st189828@stud.uni-stuttgart.de",
+  "root":  "E:\\FFM\\scripts",
+  "host":  "Kannadiga",
+  "executable":  "C:\\Users\\Hp\\anaconda3\\envs\\colab_env\\python.exe",
+  "codePathLocal":  "navier_stokes_train.py",
+  "cpu_count":  4,
+  "cpu_count_logical":  8,
+  "disk":  {
+    "/":  {
+      "total":  "392099262464",
+      "used":  "45750607872"
+    }
+  },
+  "memory":  {
+    "total":  "17055862784"
+  },
+  "cpu":  {
+    "count":  4,
+    "countLogical":  8
+  }
+}

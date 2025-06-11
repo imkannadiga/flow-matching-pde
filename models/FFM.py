@@ -5,7 +5,7 @@ import torch
 from torchdiffeq import odeint
 from util.gaussian_process import GPPrior
 from util.util import make_grid, reshape_for_batchwise, plot_loss_curve, plot_samples
-
+import wandb
 import time
 
 class FFMModel:
@@ -86,6 +86,18 @@ class FFMModel:
         device = self.device
         dtype = self.dtype
 
+        run = wandb.init(
+            entity="hathreyap-university-of-stuttgart",
+            project="test-ffm-train",
+            # Track hyperparameters and run metadata.
+            config={
+                "learning_rate": optimizer.param_groups[0]['lr'],
+                "architecture": "FNN",
+                "dataset": "FNO_NS_RE20_N5000_T50",
+                "epochs": epochs,
+            },
+        )
+
         first = True
         for ep in range(1, epochs+1):
             ##### TRAINING LOOP
@@ -93,6 +105,9 @@ class FFMModel:
             model.train()
             tr_loss = 0.0
 
+            # Metrics for WandB
+            metrics = {}
+            
             for batch in train_loader:
                 batch = batch.to(device)
                 batch_size = batch.shape[0]
@@ -127,6 +142,7 @@ class FFMModel:
             tr_losses.append(tr_loss)
             if scheduler: scheduler.step()
 
+            metrics["training_loss"] = tr_loss
 
             t1 = time.time()
             epoch_time = t1 - t0
@@ -167,13 +183,14 @@ class FFMModel:
                         t1 = time.time()
                         epoch_time = t1 - t0
                         print(f'te @ epoch {ep}/{epochs} | Loss {te_loss:.6f} | {epoch_time:.2f} (s)')
+                        
+                        metrics['evaluation_loss'] = te_loss
 
 
                     # genereate samples during training?
                     if generate:
                         samples = self.sample(self.train_dims, n_channels=self.n_channels, n_samples=16)
                         plot_samples(samples, save_path / f'samples_epoch{ep}.pdf')
-
 
             ##### BOOKKEEPING
             if ep % save_int == 0:
@@ -183,6 +200,8 @@ class FFMModel:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf', te_loss=te_losses, te_epochs=eval_eps)
             else:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf')
+        
+        run.finish()
 
 
     @torch.no_grad()
