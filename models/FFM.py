@@ -200,6 +200,8 @@ class FFMModel:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf', te_loss=te_losses, te_epochs=eval_eps)
             else:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf')
+            
+            run.log(metrics)
         
         run.finish()
 
