@@ -4,6 +4,8 @@ sys.path.append('../')
 
 import gdown
 
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -100,5 +102,5 @@ model_wrapper.train(loader_tr,
                     eval_int=evalint,
                     save_int=saveint,
                     generate=generate,
-                    save_path=spath
+                    save_path=Path(spath)
                     )
