@@ -27,7 +27,7 @@ downlaod_url = 'https://drive.google.com/uc?id=1rdaAAQqsz8vePMLd8iETgdk-35Twsc72
 data_identifier = 'data.npy'
 
 ntr = 20000
-batch_size = 256
+batch_size = 512
 
 modes = 64
 visch = 1
@@ -48,7 +48,7 @@ nepoch = 10
 evalint = 2
 saveint = 10
 generate = True
-spath = './models/'
+spath = '../models/'
 
 def download_dataset(target_location='./'):
     print(f'Downloading dataset from {downlaod_url}')
