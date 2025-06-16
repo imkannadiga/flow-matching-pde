@@ -44,7 +44,7 @@ def load_and_prepare(data_identifier):
 
 def create_model():
     print('Initializing model....')
-    model = FNO(config['modes'], config['visch'], config['hch'], config['pch'], xdim=config['xdim'], t_scaling=config['t_scaling'])
+    model = FNO(config['modes'], config['visch'], config['hch'], config['pch'], x_dim=config['xdim'], t_scaling=config['t_scaling'])
     model.to(config['device'])
     print(model)
     model_wrapper = FFMModel(model, 
