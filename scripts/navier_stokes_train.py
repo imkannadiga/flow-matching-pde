@@ -65,6 +65,11 @@ scheduler = StepLR(optimizer, step_size=25, gamma=0.1)
 
 print('Starting training....')
 
+spath = Path(config['spath'])
+
+if not spath.exists():
+    spath.mkdir()
+    
 model_wrapper.train(loader_tr,
                     optimizer,
                     epochs=config['nepoch'],
@@ -100,8 +105,12 @@ spec_mse = spectra_mse(real, gen)
 print(f"Density MSE: {dens_mse:.4e}")
 print(f"Spectrum MSE: {spec_mse:.4e}")
 
-# Optional: save evaluation plots
-distribution_kde(real, gen, save_path="../evaluation/distribution_kde.png")
-compare_spectra(real, gen, save_path="../evaluation/spectrum_comparison.png")
+eval_path = Path(config['eval_path'])
+if not eval_path.exists():
+    eval_path.mkdir()
 
-print("Evaluation complete. Plots saved.")
+# Optional: save evaluation plots
+distribution_kde(real, gen, save_path = eval_path / "distribution_kde.png")
+compare_spectra(real, gen, save_path = eval_path / "spectrum_comparison.png")
+
+print("Evaluation complete.....")
