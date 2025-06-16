@@ -1,3 +1,6 @@
-*.npy
+/data
 scripts/wandb/
 */__pycache__/
+*.pt
+*.pdf
+*/evaluation

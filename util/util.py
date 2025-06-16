@@ -2,6 +2,14 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from util.util2 import MatReader
+import gdown
+
+
+def download_dataset(url, source):
+    if source=='drive.google':
+        print(f'Downloading dataset from {url}')
+        output_file_name = gdown.cached_download(url=url)
+        return output_file_name
 
 
 def make_grid(dims, x_min=0, x_max=1):
