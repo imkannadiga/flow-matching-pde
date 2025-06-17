@@ -83,7 +83,7 @@ model_wrapper.train(loader_tr,
 
 print("Training completed, performing evaluation....")
 
-model_wrapper.eval()
+model.eval()
 test_iter = iter(loader_te)
 test_batch = next(test_iter)  # shape: (batch_size, 1, 64, 64)
 test_batch = test_batch.to(config['device'])
@@ -113,4 +113,4 @@ if not eval_path.exists():
 distribution_kde(real, gen, save_path = eval_path / "distribution_kde.png")
 compare_spectra(real, gen, save_path = eval_path / "spectrum_comparison.png")
 
-print("Evaluation complete.....")
+print("Evaluation complete")
