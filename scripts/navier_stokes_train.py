@@ -90,7 +90,10 @@ test_batch = test_batch.to(config['device'])
 
 with torch.no_grad():
     # Get model prediction
-    pred = model(test_batch)  # Assumes model returns shape: (batch_size, 1, 64, 64)
+    pred = model_wrapper.sample(dims=test_batch.shape[2:], 
+                                n_channels=test_batch[1],
+                                x0=test_batch,
+                                n_eval=1000)  # Assumes model returns shape: (batch_size, 1, 64, 64)
 
 # === Convert shapes to (N, 64, 64) ===
 real = test_batch.squeeze(1).cpu()  # Remove channel dim
