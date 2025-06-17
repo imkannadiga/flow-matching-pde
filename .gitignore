@@ -4,4 +4,5 @@ scripts/wandb/
 *.pt
 *.pdf
 */evaluation/
+*/results/
 config.yaml
