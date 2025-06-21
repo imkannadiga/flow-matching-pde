@@ -2,7 +2,7 @@ data:
   root_dir: "./data/"
   filename: "fno_ns_Re20_N5000_T50.npy"
   n_tr: 20000
-  batch_size: 128
+  batch_size: 256
 
 model:
   modes: 64
@@ -19,7 +19,7 @@ model:
   var: 1.0
   sigma_min: 0.0001
 
-  device: "cuda" 
+  device: "cuda"
 
 train:
   lr: 0.0001
@@ -39,4 +39,4 @@ wandb:
   name: "FFM - Navier Stokes"
   model: "FFM-FNO"
   entity: "hathreyap-university-of-stuttgart"
-  enabled: True
+  enabled: False

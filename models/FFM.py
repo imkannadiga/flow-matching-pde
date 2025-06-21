@@ -5,12 +5,26 @@ import torch
 from torchdiffeq import odeint
 from util.gaussian_process import GPPrior
 from util.util import make_grid, reshape_for_batchwise, plot_loss_curve, plot_samples
+from models.fno import FNO
 import wandb
 import time
 
 class FFMModel:
-    def __init__(self, model, kernel_length=0.001, kernel_variance=1.0, sigma_min=1e-4, device='cpu', dtype=torch.double, vp=False):
-        self.model = model
+    def __init__(self, 
+                 modes,
+                 visch,
+                 hch,
+                 pch,
+                 xdim,
+                 t_scaling, 
+                 kernel_length=0.001, 
+                 kernel_variance=1.0, 
+                 sigma_min=1e-4, 
+                 device='cpu', 
+                 dtype=torch.double, 
+                 vp=False
+                ):
+        self.model = FNO(modes, visch, hch, pch, x_dim=xdim, t_scaling=t_scaling)
         self.device = device
         self.dtype = dtype
         self.gp = GPPrior(lengthscale=kernel_length, var=kernel_variance, device=device)
@@ -84,7 +98,6 @@ class FFMModel:
 
         model = self.model
         device = self.device
-        dtype = self.dtype
 
         run = wandb.init(
             entity="hathreyap-university-of-stuttgart",
