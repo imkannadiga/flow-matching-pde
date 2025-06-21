@@ -4,6 +4,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from pathlib import Path
 from util.util import plot_samples, plot_loss_curve
+import tqdm
 import wandb
 import time
 
@@ -52,7 +53,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
             
             metrics = {}
             
-            for batch in train_loader:
+            for batch in tqdm(train_loader):
                 batch = batch.to(device)
                 batch_size = batch.shape[0]
 
