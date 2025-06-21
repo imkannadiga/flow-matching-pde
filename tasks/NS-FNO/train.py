@@ -27,10 +27,8 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
 
     if cfg.wandb.enabled:
         wandb.init(
-            project=cfg.wandb.project,
-            name=cfg.wandb.name,
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
-            model=cfg.wandb.model,
+            project=cfg.wandb.project,
             config=dict(cfg),  # Log full config as hyperparameters
         )
         wandb.watch(model, log="all")
