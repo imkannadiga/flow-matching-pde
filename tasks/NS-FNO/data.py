@@ -39,7 +39,7 @@ def read_data(file_path):
     data specific read logic
     '''
     if file_path.endswith('.npy'):
-        data = np.load(file_path)
+        data = torch.from_numpy(np.load(file_path, allow_pickle=True))
         return torch.tensor(data, dtype=torch.float32)
     elif file_path.endswith('.pt'):
         return torch.load(file_path)
