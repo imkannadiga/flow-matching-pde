@@ -8,7 +8,7 @@ import wandb
 import time
 
 def train_model(model_wr, cfg, train_loader, test_loader=None):
-    optimizer = Adam(model.parameters(), cfg.train.lr)
+    optimizer = Adam(model_wr.model.parameters(), cfg.train.lr)
     scheduler = StepLR(optimizer, step_size=cfg.train.scheduler_step_size, gamma=cfg.train.scheduler_gamma)
     
     tr_losses = []
