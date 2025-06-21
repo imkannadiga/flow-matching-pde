@@ -15,7 +15,7 @@ class FFMModel:
                  visch,
                  hch,
                  pch,
-                 xdim,
+                 x_dim,
                  t_scaling, 
                  kernel_length=0.001, 
                  kernel_variance=1.0, 
@@ -24,7 +24,7 @@ class FFMModel:
                  dtype=torch.double, 
                  vp=False
                 ):
-        self.model = FNO(modes, visch, hch, pch, x_dim=xdim, t_scaling=t_scaling)
+        self.model = FNO(modes, visch, hch, pch, x_dim=x_dim, t_scaling=t_scaling)
         self.device = device
         self.dtype = dtype
         self.gp = GPPrior(lengthscale=kernel_length, var=kernel_variance, device=device)
