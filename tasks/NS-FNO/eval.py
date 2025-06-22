@@ -21,10 +21,8 @@ def evaluate_model(model, cfg:DictConfig):
     gt_sequence = sample[:n_steps]  # Ground truth (25 frames)
     
     # === INITIAL CONDITION ===
-    x0 = gt_sequence[0].unsqueeze(0)  # Shape: [1, C, H, W]
+    x0 = gt_sequence[0].unsqueeze(1)  # Shape: [1, C, H, W]
     
-    # reshape x0 from [1,64,64] to [1,1,64,64]
-    x0 = x0.unsqueeze(1)
     
     dims = list(x0.shape[2:])         # e.g. [64, 64]
     n_channels = x0.shape[1]
