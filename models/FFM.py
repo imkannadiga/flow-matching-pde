@@ -1,30 +1,14 @@
-# Define the model
-
 import numpy as np
 import torch
 from torchdiffeq import odeint
 from util.gaussian_process import GPPrior
 from util.util import make_grid, reshape_for_batchwise, plot_loss_curve, plot_samples
-from models.fno import FNO
-import wandb
+
 import time
 
 class FFMModel:
-    def __init__(self, 
-                 modes,
-                 visch,
-                 hch,
-                 pch,
-                 x_dim,
-                 t_scaling, 
-                 kernel_length=0.001, 
-                 kernel_variance=1.0, 
-                 sigma_min=1e-4, 
-                 device='cpu', 
-                 dtype=torch.double, 
-                 vp=False
-                ):
-        self.model = FNO(modes, visch, hch, pch, x_dim=x_dim, t_scaling=t_scaling)
+    def __init__(self, model, kernel_length=0.001, kernel_variance=1.0, sigma_min=1e-4, device='cpu', dtype=torch.double, vp=False):
+        self.model = model
         self.device = device
         self.dtype = dtype
         self.gp = GPPrior(lengthscale=kernel_length, var=kernel_variance, device=device)
@@ -98,18 +82,7 @@ class FFMModel:
 
         model = self.model
         device = self.device
-
-        run = wandb.init(
-            entity="hathreyap-university-of-stuttgart",
-            project="test-ffm-train",
-            # Track hyperparameters and run metadata.
-            config={
-                "learning_rate": optimizer.param_groups[0]['lr'],
-                "architecture": "FNN",
-                "dataset": "FNO_NS_RE20_N5000_T50",
-                "epochs": epochs,
-            },
-        )
+        dtype = self.dtype
 
         first = True
         for ep in range(1, epochs+1):
@@ -118,9 +91,6 @@ class FFMModel:
             model.train()
             tr_loss = 0.0
 
-            # Metrics for WandB
-            metrics = {}
-            
             for batch in train_loader:
                 batch = batch.to(device)
                 batch_size = batch.shape[0]
@@ -155,7 +125,6 @@ class FFMModel:
             tr_losses.append(tr_loss)
             if scheduler: scheduler.step()
 
-            metrics["training_loss"] = tr_loss
 
             t1 = time.time()
             epoch_time = t1 - t0
@@ -196,14 +165,13 @@ class FFMModel:
                         t1 = time.time()
                         epoch_time = t1 - t0
                         print(f'te @ epoch {ep}/{epochs} | Loss {te_loss:.6f} | {epoch_time:.2f} (s)')
-                        
-                        metrics['evaluation_loss'] = te_loss
 
 
                     # genereate samples during training?
                     if generate:
                         samples = self.sample(self.train_dims, n_channels=self.n_channels, n_samples=16)
                         plot_samples(samples, save_path / f'samples_epoch{ep}.pdf')
+
 
             ##### BOOKKEEPING
             if ep % save_int == 0:
@@ -213,22 +181,17 @@ class FFMModel:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf', te_loss=te_losses, te_epochs=eval_eps)
             else:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf')
-            
-            run.log(metrics)
-        
-        run.finish()
 
 
     @torch.no_grad()
-    def sample(self, dims, n_channels=1, x0=None, n_samples=1, n_eval=2, return_path=False, rtol=1e-5, atol=1e-5):
+    def sample(self, dims, n_channels=1, n_samples=1, n_eval=2, return_path=False, rtol=1e-5, atol=1e-5):
         # n_eval: how many timesteps in [0, 1] to evaluate. Should be >= 2. 
         # dims: dimensionality of domain, e.g. [64, 64] for 64x64 images
-        # x0: Initial conditions of the ODE. If none, generates a sample from a random normal distribution
 
         t = torch.linspace(0, 1, n_eval, device=self.device)
         grid = make_grid(dims)
-        if x0 is None:
-            x0 = self.gp.sample(grid, dims, n_samples=n_samples, n_channels=n_channels)
+        x0 = self.gp.sample(grid, dims, n_samples=n_samples, n_channels=n_channels)
+
         method = 'dopri5'
         out = odeint(self.model, x0, t, method=method, rtol=rtol, atol=atol)
 

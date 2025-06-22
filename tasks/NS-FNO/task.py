@@ -6,6 +6,7 @@ import hydra
 from omegaconf import DictConfig
 
 from models.FFM import FFMModel
+from models.fno import FNO
 from train import train_model
 from general.eval import evaluate_model
 from data import load_data
@@ -20,25 +21,18 @@ def run_task(cfg: DictConfig):
     loader_tr, loader_te = load_data(cfg)
     # Instantiate model from impmorting the relavent model from models
     print(f"Initializing model with configuration: {cfg.model}")
-    model = FFMModel(
-        modes=cfg.model.modes,
-        visch=cfg.model.visch,
-        hch=cfg.model.hch,
-        pch=cfg.model.pch,
-        x_dim=cfg.model.xdim,
-        t_scaling=cfg.model.t_scaling,
-        kernel_length=cfg.model.lengthscale,
-        kernel_variance=cfg.model.var,
-        sigma_min=cfg.model.sigma_min,
-        device=cfg.model.device
-    )
-    
+    model = FNO(cfg.model.modes, cfg.model.visch, cfg.model.hch, cfg.model.pch, x_dim=cfg.model.xdim, t_scaling=cfg.model.t_scaling)
     model.to(cfg.model.device)
-    
+    print(model)
+    model_wrapper = FFMModel(model, 
+                         kernel_length=cfg.model.lengthscale, 
+                         kernel_variance=cfg.model.var, 
+                         sigma_min=cfg.model.sigma_min, 
+                         device=cfg.model.device)
     print("Model initialized successfully.")
     print(model)
     print("started training...")
-    train_model(model, cfg, loader_tr, loader_te)
+    train_model(model_wrapper, cfg, loader_tr, loader_te)
     
     # Evaluate the model and save results in ../results/<task_name>/
     print("Evaluating model...")
