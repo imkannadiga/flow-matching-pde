@@ -18,12 +18,15 @@ def evaluate_model(model, cfg:DictConfig):
     dataset = load_raw_data(cfg)  # Replace path as needed
     sample_idx = torch.randint(0, len(dataset), (1,)).item()
     sample = dataset[sample_idx].to(device)  # Shape: [T, C, H, W]
+    print("0 :: ",sample.shape)
     gt_sequence = sample[:n_steps]  # Ground truth (25 frames)
+    
+    print("1 :: ",gt_sequence.shape)
     
     # === INITIAL CONDITION ===
     x0 = gt_sequence[0].unsqueeze(0)  # Shape: [1, C, H, W]
-    x0 = x0.unsqueeze(0)
     
+    print("2 :: ",x0.shape)
     
     dims = list(x0.shape[2:])         # e.g. [64, 64]
     n_channels = x0.shape[1]
@@ -35,9 +38,12 @@ def evaluate_model(model, cfg:DictConfig):
     x_curr = x0.clone()
     for step in range(1, n_steps):
         # Sample next frame
+        print("3 :: ",x_curr.shape)
         x_next = model.sample(dims=dims, x0=x_curr, n_channels=n_channels, n_eval=2)
         x_next = x_next.unsqueeze(0)  # Add batch dimension
 
+        print("2 :: ",x_next.shape)
+        
         # Save prediction
         pred_sequence.append(x_next.squeeze(0).detach())
 
