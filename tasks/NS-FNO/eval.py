@@ -2,8 +2,7 @@ import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from pathlib import Path
-from models import FFM  
-from .data import load_raw_data  
+from data import load_raw_data  
 
 def evaluate_model(model, cfg):
     # === CONFIGURATION ===
