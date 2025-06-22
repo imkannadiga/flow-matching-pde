@@ -192,7 +192,7 @@ class FFMModel:
         grid = make_grid(dims)
         if x0 is None:
             x0 = self.gp.sample(grid, dims, n_samples=n_samples, n_channels=n_channels)
-        
+        print('Sampling ::: x0.shape ::: ', x0.shape)
         method = 'dopri5'
         out = odeint(self.model, x0, t, method=method, rtol=rtol, atol=atol)
 
