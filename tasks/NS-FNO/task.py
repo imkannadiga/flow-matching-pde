@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from models.FFM import FFMModel
 from models.fno import FNO
 from train import train_model
-from general.eval import evaluate_model
+from eval import evaluate_model
 from data import load_data
 
 @hydra.main(config_path="../../config/NS-FNO", config_name="config", version_base=None)
