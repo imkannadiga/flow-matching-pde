@@ -51,7 +51,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
             
             metrics = {}
             
-            for batch in tqdm(train_loader):
+            for batch in train_loader:
                 batch = batch.to(device)
                 batch_size = batch.shape[0]
 
