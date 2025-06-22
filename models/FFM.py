@@ -184,14 +184,15 @@ class FFMModel:
 
 
     @torch.no_grad()
-    def sample(self, dims, n_channels=1, n_samples=1, n_eval=2, return_path=False, rtol=1e-5, atol=1e-5):
+    def sample(self, dims, n_channels=1, x0=None, n_samples=1, n_eval=2, return_path=False, rtol=1e-5, atol=1e-5):
         # n_eval: how many timesteps in [0, 1] to evaluate. Should be >= 2. 
         # dims: dimensionality of domain, e.g. [64, 64] for 64x64 images
 
         t = torch.linspace(0, 1, n_eval, device=self.device)
         grid = make_grid(dims)
-        x0 = self.gp.sample(grid, dims, n_samples=n_samples, n_channels=n_channels)
-
+        if x0 is None:
+            x0 = self.gp.sample(grid, dims, n_samples=n_samples, n_channels=n_channels)
+        
         method = 'dopri5'
         out = odeint(self.model, x0, t, method=method, rtol=rtol, atol=atol)
 
