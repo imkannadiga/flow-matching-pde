@@ -32,7 +32,10 @@ def load_raw_data(cfg: DictConfig):
     
     dataset = read_data(file_path)
     
-    return dataset
+    data = dataset.permute(3, 1, 2, 0)
+    data = data.permute(0, -1, 1, 2)
+    
+    return data
 
 def read_data(file_path):
     '''
