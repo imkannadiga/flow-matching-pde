@@ -33,6 +33,8 @@ def run_task(cfg: DictConfig):
         device=cfg.model.device
     )
     
+    model.to(cfg.model.device)
+    
     print("Model initialized successfully.")
     print(model)
     print("started training...")
