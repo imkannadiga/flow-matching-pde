@@ -36,7 +36,7 @@ def run_task(cfg: DictConfig):
     
     # Evaluate the model and save results in ../results/<task_name>/
     print("Evaluating model...")
-    evaluate_model(model, loader_te)
+    evaluate_model(model, cfg)
     
 if __name__ == "__main__":
     run_task()

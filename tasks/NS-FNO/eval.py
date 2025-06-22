@@ -1,10 +1,15 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from pathlib import Path
-from data import load_raw_data  
+from data import load_raw_data
+from omegaconf import DictConfig
 
-def evaluate_model(model, cfg):
+def evaluate_model(model, cfg:DictConfig):
     # === CONFIGURATION ===
     n_steps = cfg.evaluation.n_steps
     device = cfg.evaluation.device
@@ -56,7 +61,7 @@ def evaluate_model(model, cfg):
     plt.xlabel('Step')
     plt.ylabel('Mean Squared Error (MSE)')
     plt.grid()
-    eval_path = Path(cfg.evaluation.eval_path)
+    eval_path = Path() / cfg.evaluation.eval_path
     if not eval_path.exists():
         eval_path.mkdir(parents=True)
     plt.savefig(eval_path / 'mse_per_step.png')
