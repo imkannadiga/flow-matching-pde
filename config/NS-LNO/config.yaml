@@ -5,12 +5,12 @@ data:
   batch_size: 256
 
 model:
-  modes: 64
+  modes: 16
   visch: 1
   hch: 64
-  pch: 64
   xdim: 2
   t_scaling: 1000
+  disco_kernel_shape: [5, 5]
 
   input_dim: 2
   hidden_dim: 64
@@ -19,8 +19,7 @@ model:
   var: 1.0
   sigma_min: 0.0001
 
-  device: "cuda:0" 
-
+  device: "cuda:1"
 train:
   lr: 0.0001
   epochs: 10
@@ -31,16 +30,16 @@ train:
   scheduler_gamma: 0.5
 
   generate: False
-  save_path: "./tasks/NS-FNO/results/"
-  checkpoint_dir: "./tasks/NS-FNO/checkpoints"
+  save_path: "./tasks/NS-LNO/results/"
+  checkpoint_dir: "./tasks/NS-LNO/checkpoints"
 
 evaluation:
   n_steps: 25
-  device: 'cuda:0'
-  eval_path: "./tasks/NS-FNO/evaluation"
+  device: "cuda:1"
+  eval_path: "./tasks/NS-LNO/evaluation"
 wandb:
   project: "FunctionalFlowMatching"
   name: "FFM - Navier Stokes"
-  model: "FFM-FNO"
+  model: "FFM-LNO"
   entity: "hathreyap-university-of-stuttgart"
   enabled: True
