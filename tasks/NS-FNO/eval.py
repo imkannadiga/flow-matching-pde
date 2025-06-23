@@ -2,6 +2,8 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
+os.environ['WANDB_MODE'] = "disabled"
+
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -40,7 +42,6 @@ def evaluate_model(model, cfg:DictConfig):
         # Sample next frame
         print("3 :: ",x_curr.shape)
         x_next = model.sample(dims=dims, x0=x_curr, n_channels=n_channels, n_eval=2)
-        x_next = x_next.unsqueeze(0)  # Add batch dimension
 
         print("4 :: ",x_next.shape)
         

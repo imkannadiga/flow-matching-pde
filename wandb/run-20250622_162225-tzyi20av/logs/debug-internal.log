@@ -1,0 +1,7 @@
+{"time":"2025-06-22T16:22:25.407465024+02:00","level":"INFO","msg":"stream: starting","core version":"0.20.1","symlink path":"/netpool/homes/hathreya/FFM/wandb/run-20250622_162225-tzyi20av/logs/debug-core.log"}
+{"time":"2025-06-22T16:22:25.663501578+02:00","level":"INFO","msg":"stream: created new stream","id":"tzyi20av"}
+{"time":"2025-06-22T16:22:25.663538578+02:00","level":"INFO","msg":"stream: started","id":"tzyi20av"}
+{"time":"2025-06-22T16:22:25.663588902+02:00","level":"INFO","msg":"handler: started","stream_id":"tzyi20av"}
+{"time":"2025-06-22T16:22:25.663605995+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"tzyi20av"}
+{"time":"2025-06-22T16:22:25.663654122+02:00","level":"INFO","msg":"sender: started","stream_id":"tzyi20av"}
+{"time":"2025-06-22T16:22:25.869397383+02:00","level":"INFO","msg":"Starting system monitor"}

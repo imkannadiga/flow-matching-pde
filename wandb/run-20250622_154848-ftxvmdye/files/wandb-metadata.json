@@ -1,0 +1,50 @@
+{
+  "os": "Linux-5.15.0-101-generic-x86_64-with-glibc2.35",
+  "python": "CPython 3.13.5",
+  "startedAt": "2025-06-22T13:48:48.463501Z",
+  "program": "/netpool/homes/hathreya/FFM/tasks/NS-FNO/task.py",
+  "codePath": "tasks/NS-FNO/task.py",
+  "git": {
+    "remote": "https://github.tik.uni-stuttgart.de/st189828/FFM.git",
+    "commit": "a5dca528451a36d4a50cec110a0b71bdad195a87"
+  },
+  "email": "st189828@stud.uni-stuttgart.de",
+  "root": "/netpool/homes/hathreya/FFM",
+  "host": "simtech-niep-03",
+  "executable": "/netpool/homes/hathreya/miniforge3/envs/newenv/bin/python3",
+  "codePathLocal": "tasks/NS-FNO/task.py",
+  "cpu_count": 24,
+  "cpu_count_logical": 48,
+  "gpu": "NVIDIA RTX A4000",
+  "gpu_count": 2,
+  "disk": {
+    "/": {
+      "total": "942860439552",
+      "used": "844796825600"
+    }
+  },
+  "memory": {
+    "total": "269843599360"
+  },
+  "cpu": {
+    "count": 24,
+    "countLogical": 48
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA RTX A4000",
+      "memoryTotal": "17171480576",
+      "cudaCores": 6144,
+      "architecture": "Ampere",
+      "uuid": "GPU-7ae61ff5-8a5d-b9da-9a6e-337f3341d93e"
+    },
+    {
+      "name": "NVIDIA RTX A4000",
+      "memoryTotal": "17171480576",
+      "cudaCores": 6144,
+      "architecture": "Ampere",
+      "uuid": "GPU-fed7dd62-77ab-3abe-66b8-dd1dd2123633"
+    }
+  ],
+  "cudaVersion": "12.3"
+}

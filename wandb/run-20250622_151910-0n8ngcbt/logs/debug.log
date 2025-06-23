@@ -1,0 +1,23 @@
+2025-06-22 15:19:10,266 INFO    MainThread:3587840 [wandb_setup.py:_flush():81] Current SDK version is 0.20.1
+2025-06-22 15:19:10,266 INFO    MainThread:3587840 [wandb_setup.py:_flush():81] Configure stats pid to 3587840
+2025-06-22 15:19:10,266 INFO    MainThread:3587840 [wandb_setup.py:_flush():81] Loading settings from /netpool/homes/hathreya/.config/wandb/settings
+2025-06-22 15:19:10,266 INFO    MainThread:3587840 [wandb_setup.py:_flush():81] Loading settings from /netpool/homes/hathreya/FFM/wandb/settings
+2025-06-22 15:19:10,266 INFO    MainThread:3587840 [wandb_setup.py:_flush():81] Loading settings from environment variables
+2025-06-22 15:19:10,267 INFO    MainThread:3587840 [wandb_init.py:setup_run_log_directory():703] Logging user logs to /netpool/homes/hathreya/FFM/wandb/run-20250622_151910-0n8ngcbt/logs/debug.log
+2025-06-22 15:19:10,267 INFO    MainThread:3587840 [wandb_init.py:setup_run_log_directory():704] Logging internal logs to /netpool/homes/hathreya/FFM/wandb/run-20250622_151910-0n8ngcbt/logs/debug-internal.log
+2025-06-22 15:19:10,267 INFO    MainThread:3587840 [wandb_init.py:init():831] calling init triggers
+2025-06-22 15:19:10,267 INFO    MainThread:3587840 [wandb_init.py:init():836] wandb.init called with sweep_config: {}
+config: {'data': {'root_dir': './data/', 'filename': 'fno_ns_Re20_N5000_T50.npy', 'n_tr': 20000, 'batch_size': 128}, 'model': {'modes': 64, 'visch': 1, 'hch': 64, 'pch': 64, 'xdim': 2, 't_scaling': 1000, 'input_dim': 2, 'hidden_dim': 64, 'lengthscale': 0.001, 'var': 1.0, 'sigma_min': 0.0001, 'device': 'cuda'}, 'train': {'lr': 0.0001, 'epochs': 10, 'eval_int': 2, 'save_int': 10, 'scheduler_step_size': 25, 'scheduler_gamma': 0.5, 'generate': True, 'save_path': './results/', 'checkpoint_dir': './checkpoints'}, 'wandb': {'project': 'FunctionalFlowMatching', 'name': 'FFM - Navier Stokes', 'model': 'FFM-FNO', 'entity': 'hathreyap-university-of-stuttgart', 'enabled': True}, '_wandb': {}}
+2025-06-22 15:19:10,267 INFO    MainThread:3587840 [wandb_init.py:init():872] starting backend
+2025-06-22 15:19:10,487 INFO    MainThread:3587840 [wandb_init.py:init():875] sending inform_init request
+2025-06-22 15:19:10,496 INFO    MainThread:3587840 [wandb_init.py:init():883] backend started and connected
+2025-06-22 15:19:10,499 INFO    MainThread:3587840 [wandb_init.py:init():956] updated telemetry
+2025-06-22 15:19:10,519 INFO    MainThread:3587840 [wandb_init.py:init():980] communicating run to backend with 90.0 second timeout
+2025-06-22 15:19:10,974 INFO    MainThread:3587840 [wandb_init.py:init():1032] starting run threads in backend
+2025-06-22 15:19:11,309 INFO    MainThread:3587840 [wandb_run.py:_console_start():2453] atexit reg
+2025-06-22 15:19:11,309 INFO    MainThread:3587840 [wandb_run.py:_redirect():2301] redirect: wrap_raw
+2025-06-22 15:19:11,310 INFO    MainThread:3587840 [wandb_run.py:_redirect():2370] Wrapping output streams.
+2025-06-22 15:19:11,310 INFO    MainThread:3587840 [wandb_run.py:_redirect():2393] Redirects installed.
+2025-06-22 15:19:11,317 INFO    MainThread:3587840 [wandb_init.py:init():1078] run started, returning control to user process
+2025-06-22 15:19:11,317 INFO    MainThread:3587840 [wandb_watch.py:_watch():70] Watching
+2025-06-22 15:19:11,582 INFO    MsgRouterThr:3587840 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.

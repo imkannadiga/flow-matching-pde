@@ -1,0 +1,31 @@
+_wandb:
+    value:
+        cli_version: 0.20.1
+        m: []
+        python_version: 3.13.5
+        t:
+            "1":
+                - 1
+                - 50
+            "2":
+                - 1
+                - 50
+            "3":
+                - 1
+                - 2
+                - 16
+                - 55
+            "4": 3.13.5
+            "5": 0.20.1
+            "12": 0.20.1
+            "13": linux-x86_64
+data:
+    value: '{''root_dir'': ''./data/'', ''filename'': ''fno_ns_Re20_N5000_T50.npy'', ''n_tr'': 20000, ''batch_size'': 256}'
+evaluation:
+    value: '{''n_steps'': 25, ''device'': ''cuda'', ''eval_path'': ''./evaluation''}'
+model:
+    value: '{''modes'': 64, ''visch'': 1, ''hch'': 64, ''pch'': 64, ''xdim'': 2, ''t_scaling'': 1000, ''input_dim'': 2, ''hidden_dim'': 64, ''lengthscale'': 0.001, ''var'': 1.0, ''sigma_min'': 0.0001, ''device'': ''cuda''}'
+train:
+    value: '{''lr'': 0.0001, ''epochs'': 10, ''eval_int'': 15, ''save_int'': 10, ''scheduler_step_size'': 25, ''scheduler_gamma'': 0.5, ''generate'': False, ''save_path'': ''./results/'', ''checkpoint_dir'': ''./checkpoints''}'
+wandb:
+    value: '{''project'': ''FunctionalFlowMatching'', ''name'': ''FFM - Navier Stokes'', ''model'': ''FFM-FNO'', ''entity'': ''hathreyap-university-of-stuttgart'', ''enabled'': True}'
