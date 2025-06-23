@@ -12,7 +12,7 @@ from data import load_raw_data
 from omegaconf import DictConfig
 from util.eval import distribution_kde, compare_spectra, density_mse, spectra_mse
 
-def evaluate_model(model, cfg:DictConfig, test_iter):
+def evaluate_model(model, cfg:DictConfig, loader_te):
     # === CONFIGURATION ===
     n_steps = cfg.evaluation.n_steps
     device = cfg.evaluation.device
@@ -80,6 +80,7 @@ def evaluate_model(model, cfg:DictConfig, test_iter):
     
     # Density and Spectrum Evaluation
     
+    test_iter = iter(loader_te)
     test_batch = next(test_iter)  # shape: (batch_size, 1, 64, 64)
     test_batch = test_batch.to(cfg.evaluation.device)
 
