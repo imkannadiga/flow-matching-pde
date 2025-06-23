@@ -21,7 +21,8 @@ def run_task(cfg: DictConfig):
     loader_tr, loader_te = load_data(cfg)
     # Instantiate model from impmorting the relavent model from models
     print(f"Initializing model with configuration: {cfg.model}")
-    model = LFNO(cfg.model.modes, cfg.model.visch, cfg.model.hch, x_dim=cfg.model.xdim, t_scaling=cfg.model.t_scaling)
+    model = LFNO(cfg.model.modes, cfg.model.visch, cfg.model.hch, default_in_shape=cfg.model.default_in_shape,
+                 x_dim=cfg.model.xdim, t_scaling=cfg.model.t_scaling)
     model.to(cfg.model.device)
     print(model)
     model_wrapper = FFMModel(model, 
