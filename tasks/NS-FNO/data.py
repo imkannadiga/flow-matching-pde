@@ -25,17 +25,19 @@ def load_data(cfg: DictConfig):
 
 def load_raw_data(cfg: DictConfig):
     '''
-    Reads data file name from task specific config, reads the data, returns the raw data
+    Loads raw data and reshapes it into a dataset of shape [N, T, C, H, W]
     '''
-    # Obtain path from config 
+
+    # Load file
     file_path = os.path.join(cfg.data.root_dir, cfg.data.filename)
+    dataset = read_data(file_path)  # [T, H, W, N]
     
-    dataset = read_data(file_path)
-    
-    data = dataset.permute(3, 1, 2, 0)
-    data = data.permute(0, -1, 1, 2)
-    
-    return data
+    # Rearrange to [N, T, C, H, W]
+    dataset = dataset.permute(3, 0, 1, 2)   # [N, T, H, W]
+    dataset = dataset.unsqueeze(2)         # Add channel dim → [N, T, 1, H, W]
+
+    return dataset
+
 
 def read_data(file_path):
     '''
