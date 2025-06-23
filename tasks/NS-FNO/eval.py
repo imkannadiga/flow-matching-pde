@@ -18,6 +18,7 @@ def evaluate_model(model, cfg:DictConfig):
     dataset = load_raw_data(cfg)  # Replace path as needed
     sample_idx = torch.randint(0, len(dataset), (1,)).item()
     sample = dataset[sample_idx].to(device)  # Shape: [T, C, H, W]
+    sample = sample.unsqueeze(1)
     print("0 :: ",sample.shape)
     gt_sequence = sample[:n_steps]  # Ground truth (25 frames)
     
