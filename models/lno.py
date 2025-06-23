@@ -21,7 +21,7 @@ def t_allhot(t, shape):
 
 
 class LFNO(torch.nn.Module):
-    def __init__(self, modes, vis_channels, hidden_channels, x_dim=1, 
+    def __init__(self, modes, vis_channels, hidden_channels, x_dim=1, default_in_shape=[64,64],  
                  disco_kernel_shape=(5, 5), t_scaling=1000):
         super(LFNO, self).__init__()
         
@@ -35,9 +35,9 @@ class LFNO(torch.nn.Module):
         n_modes = (modes, ) * x_dim   # Same number of modes in each x dimension
         in_channels = vis_channels + x_dim + 1  # visual channels + spatial embedding + time embedding
 
-        self.model = _FNO(n_modes=n_modes, 
+        self.model = _FNO(n_modes=n_modes,  
                          hidden_channels=hidden_channels, disco_kernel_shape=disco_kernel_shape,
-                         in_channels=in_channels, out_channels=vis_channels)
+                         in_channels=in_channels, out_channels=vis_channels, default_in_shape=default_in_shape)
         
         
     def forward(self, t, u):

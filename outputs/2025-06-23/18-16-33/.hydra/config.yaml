@@ -1,0 +1,40 @@
+data:
+  root_dir: ./data/
+  filename: fno_ns_Re20_N5000_T50.npy
+  n_tr: 20000
+  batch_size: 256
+model:
+  modes: 64
+  visch: 1
+  hch: 64
+  pch: 64
+  xdim: 2
+  t_scaling: 1000
+  input_dim: 2
+  hidden_dim: 64
+  lengthscale: 0.001
+  var: 1.0
+  sigma_min: 0.0001
+  device: cuda:0
+train:
+  lr: 0.0001
+  epochs: 10
+  eval_int: 10
+  save_int: 10
+  scheduler_step_size: 25
+  scheduler_gamma: 0.5
+  generate: false
+  save_path: ./tasks/NS-FNO/results/
+  checkpoint_dir: ./tasks/NS-FNO/checkpoints
+evaluation:
+  n_steps: 25
+  device: cuda:0
+  eval_path: ./tasks/NS-FNO/evaluation
+wandb:
+  project: FunctionalFlowMatching
+  name: FFM - Navier Stokes
+  model: FFM-FNO
+  entity: hathreyap-university-of-stuttgart
+  enabled: true
+entity: hathreyap-university-of-stuttgart
+  enabled: true

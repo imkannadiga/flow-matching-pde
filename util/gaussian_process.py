@@ -47,8 +47,8 @@ class GPPrior(gpytorch.models.ExactGP):
             self.covar_module = kernel
             
         self.eval()  # Required for sampling from prior
-        if device == 'cuda':
-            self.cuda()
+        if torch.device(device).type == 'cuda':
+            self.cuda(device=torch.device(device))
 
     def check_input(self, x, dims=None):
         assert x.ndim == 2, f'Input {x.shape} should have shape (n_points, dim)'
