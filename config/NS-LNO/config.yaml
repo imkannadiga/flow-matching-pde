@@ -24,19 +24,19 @@ model:
   device: "cuda:1"
 train:
   lr: 0.0001
-  epochs: 10
-  eval_int: 10
-  save_int: 10
+  epochs: 300
+  eval_int: 15
+  save_int: 30
 
   scheduler_step_size: 25
   scheduler_gamma: 0.5
 
-  generate: False
+  generate: True
   save_path: "./tasks/NS-LNO/results/"
   checkpoint_dir: "./tasks/NS-LNO/checkpoints"
 
 evaluation:
-  n_steps: 25
+  n_steps: 50
   device: "cuda:1"
   eval_path: "./tasks/NS-LNO/evaluation"
 wandb:
