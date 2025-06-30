@@ -39,4 +39,4 @@ wandb:
   name: "FFM - Navier Stokes"
   model: "FFM-FNO"
   entity: "hathreyap-university-of-stuttgart"
-  enabled: False
+  enabled: True

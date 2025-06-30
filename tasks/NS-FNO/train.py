@@ -29,6 +29,9 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
         wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
+            name=cfg.wandb.name,
+            group= cfg.wandb.model,
+            job_type="train",
             config=dict(cfg),  # Log full config as hyperparameters
         )
         wandb.watch(model, log="all")
