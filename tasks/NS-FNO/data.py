@@ -40,7 +40,7 @@ def load_data(cfg: DictConfig):
 
     # Wrap with custom Dataset BEFORE split
     full_dataset = NavierStokesDataset(dataset)
-    data_tr, data_te = random_split(full_dataset, [cfg.data.n_tr, cfg.data.n_te])
+    data_tr, data_te, _ = random_split(full_dataset, [cfg.data.n_tr, cfg.data.n_te, len(full_dataset) - cfg.data.n_tr - cfg.data.n_te])
     
     train_loader = DataLoader(data_tr, batch_size=cfg.data.batch_size, shuffle=True)
     test_loader = DataLoader(data_te, batch_size=cfg.data.batch_size, shuffle=False)
@@ -60,8 +60,9 @@ def load_testing_data(cfg: DictConfig):
     # Rearrange to [N, T, C, H, W]
     dataset = dataset.permute(3, 0, 1, 2)   # [N, T, H, W]
     dataset = dataset.unsqueeze(2)         # Add channel dim → [N, T, 1, H, W]
-    
-    dataset = random_split(dataset, [cfg.data.n_te, cfg.data.n_te])[0]  # Get only test data
+
+    dataset = NavierStokesDataset(dataset)
+    dataset = random_split(dataset, [cfg.data.n_tr, cfg.data.n_te, len(dataset) - cfg.data.n_tr - cfg.data.n_te])[1]  # Get only test data
 
     seq_pairs = NavierStokesDataset(create_sequential_pairs(dataset))
 
