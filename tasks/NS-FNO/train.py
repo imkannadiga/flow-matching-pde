@@ -54,8 +54,9 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
             
             metrics = {}
             
-            for batch in train_loader:
+            for batch, target in train_loader:
                 batch = batch.to(device)
+                target = target.to(device)
                 batch_size = batch.shape[0]
 
                 if first:
@@ -63,18 +64,8 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
                     model_wr.train_dims = batch.shape[2:]
                     first = False
 
-                # t ~ Unif[0, 1)
-                t = torch.rand(batch_size, device=device)
-                # Simluate p_t(x | x_1)
-                x_noisy = model_wr.simulate(t, batch)
-                # Get conditional vector fields
-                target = model_wr.get_conditional_fields(t, batch, x_noisy)
-
-                x_noisy = x_noisy.to(device)
-                target = target.to(device)         
-
                 # Get model output
-                model_out = model(t, x_noisy)
+                model_out = model(batch)
 
                 # Evaluate loss and do gradient step
                 optimizer.zero_grad()
@@ -104,22 +95,14 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
 
                     if evaluate:
                         te_loss = 0.0
-                        for batch in test_loader:
+                        for batch, target in test_loader:
                             batch = batch.to(device)
+                            target = target.to(device)
                             batch_size = batch.shape[0]
 
-                            # t ~ Unif[0, 1)
-                            t = torch.rand(batch_size, device=device)
-                            # Simluate p_t(x | x_1)
-                            x_noisy = model_wr.simulate(t, batch)
-                            # Get conditional vector fields
-                            target = model_wr.get_conditional_fields(t, batch, x_noisy)
+                            x_pred = model(batch)
 
-                            x_noisy = x_noisy.to(device)
-                            target = target.to(device)         
-                            model_out = model(t, x_noisy)
-
-                            loss = torch.mean( (model_out - target)**2 )
+                            loss = torch.mean( (x_pred - target)**2 )
 
                             te_loss += loss.item()
 
@@ -131,12 +114,6 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
                         print(f'te @ epoch {ep}/{epochs} | Loss {te_loss:.6f} | {epoch_time:.2f} (s)')
                         
                         metrics['evaluation_loss'] = te_loss
-
-
-                    # genereate samples during training?
-                    if generate:
-                        samples = model_wr.sample(model_wr.train_dims, n_channels=model_wr.n_channels, n_samples=16)
-                        plot_samples(samples, save_path / f'samples_epoch{ep}.pdf')
 
             ##### BOOKKEEPING
             if ep % save_int == 0:

@@ -61,7 +61,8 @@ def spectrum(u, s):
     # wavenumers = [0, 1, 2, n/2-1, -n/2, -n/2 + 1, ..., -3, -2, -1]
     
     # Sum wavenumbers
-    sum_k = torch.abs(k_x) + torch.abs(k_y)
+    sum_k = torch.abs(k_x) + torch.abs(k_y
+                                       )
     sum_k = sum_k.numpy()
     
     # Remove symmetric components from wavenumbers

@@ -4,6 +4,27 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import numpy as np
 from omegaconf import DictConfig
 
+class NavierStokesDataset(Dataset):
+    def __init__(self, data_tensor):
+        """
+        data_tensor: torch.Tensor of shape [N, T, C, H, W]
+        """
+        self.data = data_tensor
+        N, T, C, H, W = data_tensor.shape
+
+        self.X = data_tensor[:, :-1]  # shape: [N, T-1, C, H, W]
+        self.Y = data_tensor[:, 1:]   # shape: [N, T-1, C, H, W]
+
+        self.X = self.X.reshape(-1, C, H, W)  # [N*(T-1), C, H, W]
+        self.Y = self.Y.reshape(-1, C, H, W)  # [N*(T-1), C, H, W]
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.Y[idx]
+
+
 def load_data(cfg: DictConfig):
     '''
     Reads data file name from task specific config, reads the data, pre-process it
@@ -14,18 +35,23 @@ def load_data(cfg: DictConfig):
     
     dataset = read_data(file_path)
     
-    data_processed = preprocess(dataset)
+    # Rearrange to [N, T, C, H, W]
+    dataset = dataset.permute(3, 0, 1, 2)   # [N, T, H, W]
+    dataset = dataset.unsqueeze(2)         # Add channel dim → [N, T, 1, H, W]
     
-    data_tr, data_te = data_processed[:cfg.data.n_tr], data_processed[cfg.data.n_tr:]
-
-    train_loader = DataLoader(data_tr, batch_size=cfg.data.batch_size, shuffle=True)
-    test_loader = DataLoader(data_te, batch_size=cfg.data.batch_size, shuffle=False)
+    data_tr, data_te = random_split(dataset, [cfg.data.n_tr, cfg.data.n_te])
+    
+    dataset_train = NavierStokesDataset(data_tr)
+    dataset_test = NavierStokesDataset(data_te)
+    
+    train_loader = DataLoader(dataset_train, batch_size=cfg.data.batch_size, shuffle=True)
+    test_loader = DataLoader(dataset_test, batch_size=cfg.data.batch_size, shuffle=False)
 
     return train_loader, test_loader
 
-def load_raw_data(cfg: DictConfig):
+def load_testing_data(cfg: DictConfig):
     '''
-    Loads raw data and reshapes it into a dataset of shape [N, T, C, H, W]
+    Loads data and reshapes it into a dataset of shape [N, T, C, H, W] for testing
     '''
 
     # Load file
@@ -35,8 +61,12 @@ def load_raw_data(cfg: DictConfig):
     # Rearrange to [N, T, C, H, W]
     dataset = dataset.permute(3, 0, 1, 2)   # [N, T, H, W]
     dataset = dataset.unsqueeze(2)         # Add channel dim → [N, T, 1, H, W]
+    
+    dataset = random_split(dataset, [cfg.data.n_te, cfg.data.n_te])[0]  # Get only test data
 
-    return dataset
+    seq_pairs = NavierStokesDataset(create_sequential_pairs(dataset))
+
+    return dataset, DataLoader(seq_pairs)
 
 
 def read_data(file_path):
@@ -58,3 +88,21 @@ def preprocess(data):
     data = data.permute(3, 1, 2, 0)
     data = data.permute(0, -1, 1, 2).contiguous().reshape(-1, 64, 64).unsqueeze(1) 
     return data
+
+def create_sequential_pairs(data):
+    """
+    Given a tensor of shape [N, T, C, H, W], return X and Y:
+    - X: [N*(T-1), C, H, W] at time t
+    - Y: [N*(T-1), C, H, W] at time t+1
+    """
+    N, T, C, H, W = data.shape
+
+    # Get all t and t+1 pairs
+    X = data[:, :-1]  # shape: [N, T-1, C, H, W]
+    Y = data[:, 1:]   # shape: [N, T-1, C, H, W]
+
+    # Flatten first two dims to create sample-wise dataset
+    X = X.reshape(-1, C, H, W)  # [N*(T-1), C, H, W]
+    Y = Y.reshape(-1, C, H, W)  # [N*(T-1), C, H, W]
+
+    return X, Y
