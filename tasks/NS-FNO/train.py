@@ -31,6 +31,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
         print("Initializing wandb....")
         wandb.login()
         print("Wandb login successful!")
+        print("wandb config ::: ", cfg.wandb)
         run = wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
