@@ -28,7 +28,9 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
     run = None
 
     if cfg.wandb.enabled:
+        print("Initializing wandb....")
         wandb.login()
+        print("Wandb login successful!")
         run = wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
@@ -36,6 +38,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
             group= cfg.wandb.model,
             config=dict(cfg),  # Log full config as hyperparameters
         )
+        print("wandb run ::: ", run.summary)
         run.watch(model, log="all")
 
     epochs = cfg.train.epochs

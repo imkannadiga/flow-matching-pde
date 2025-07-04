@@ -42,6 +42,6 @@ evaluation:
 wandb:
   project: "FunctionalFlowMatching"
   name: "FFM - Navier Stokes"
-  model: "FFM-FNO"
+  model: "FNO"
   entity: "hathreyap-university-of-stuttgart"
   enabled: True

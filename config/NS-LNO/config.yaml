@@ -1,7 +1,8 @@
 data:
   root_dir: "./data/"
   filename: "fno_ns_Re20_N5000_T50.npy"
-  n_tr: 20000
+  n_tr: 4000
+  n_te: 1000
   batch_size: 256
 
 model:
@@ -42,6 +43,6 @@ evaluation:
 wandb:
   project: "FunctionalFlowMatching"
   name: "FFM - Navier Stokes"
-  model: "FFM-LNO"
+  model: "LFNO"
   entity: "hathreyap-university-of-stuttgart"
   enabled: True
