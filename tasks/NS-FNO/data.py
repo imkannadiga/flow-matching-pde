@@ -64,9 +64,7 @@ def load_testing_data(cfg: DictConfig):
     dataset = NavierStokesDataset(raw_dataset)
     dataset = random_split(dataset, [cfg.data.n_tr, cfg.data.n_te, len(dataset) - cfg.data.n_tr - cfg.data.n_te])[1]  # Get only test data
 
-    seq_pairs = NavierStokesDataset(dataset)
-
-    return raw_dataset, DataLoader(seq_pairs)
+    return raw_dataset, DataLoader(dataset)
 
 
 def read_data(file_path):
