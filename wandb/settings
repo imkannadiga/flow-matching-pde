@@ -1,0 +1,6 @@
+[default]
+mode = online
+entity = hathreyap-university-of-stuttgart
+project = FunctionalFlowMatching
+base_url = https://api.wandb.ai
+
