@@ -4,7 +4,6 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from pathlib import Path
 from util.util import plot_samples, plot_loss_curve
-import tqdm
 import wandb
 import time
 
@@ -28,19 +27,14 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
     run = None
 
     if cfg.wandb.enabled:
-        print("Initializing wandb....")
-        wandb.login()
-        print("Wandb login successful!")
-        print("wandb config ::: ", cfg.wandb)
-        run = wandb.init(
+        wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
             name=cfg.wandb.name,
             group= cfg.wandb.model,
             config=dict(cfg),  # Log full config as hyperparameters
         )
-        print("wandb run ::: ", run.summary)
-        run.watch(model, log="all")
+        wandb.watch(model, log="all")
 
     epochs = cfg.train.epochs
     
@@ -130,9 +124,9 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
             else:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf')
             if cfg.wandb.enabled:
-                run.log(metrics)
+                wandb.log(metrics)
         
     if cfg.wandb.enabled:
-        run.finish()
+        wandb.finish()
 
     return
