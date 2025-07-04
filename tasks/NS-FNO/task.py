@@ -30,7 +30,6 @@ def run_task(cfg: DictConfig):
                          sigma_min=cfg.model.sigma_min, 
                          device=cfg.model.device)
     print("Model initialized successfully.")
-    print(model)
     print("started training...")
     train_model(model_wrapper, cfg, loader_tr, loader_te)
     
