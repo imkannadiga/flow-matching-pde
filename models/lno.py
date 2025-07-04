@@ -84,29 +84,3 @@ def make_posn_embed(batch_size, dims):
     
     
     return emb
-    
-
-class FNO1dgano(torch.nn.Module):
-    def __init__(self, modes, hidden_channels, proj_channels):
-        super(FNO1dgano, self).__init__()
-        
-        #model = TFNO(n_modes=(16, 16), hidden_channels=32, projection_channels=64, factorization='tucker', rank=0.42)
-        in_channels = 2  # visual channels + spatial embedding + time embedding
-
-        self.model = _FNO(n_modes=(modes,), 
-                         hidden_channels=hidden_channels, projection_channels=proj_channels,
-                         in_channels=in_channels, out_channels=1)
-        
-        
-    def forward(self, u):
-        # u: (batch_size, n_x, channels)
-        batch_size, n_x = u.squeeze().shape
-        
-        u = u.reshape(batch_size, 1, n_x)
-        # print(u.shape)
-        posn_emb = make_posn_embed(batch_size, [n_x]).to(u.device)
-        u = torch.cat((u, posn_emb), dim=1).float() # todo fix precision
-        # print(u.shape)
-        out = self.model(u)
-
-        return out
