@@ -12,70 +12,64 @@ from data import load_testing_data
 from omegaconf import DictConfig
 from util.eval import distribution_kde, compare_spectra, density_mse, spectra_mse
 
-def evaluate_model(model, cfg:DictConfig):
-    # Put model to evaluation mode
+def evaluate_model(model, cfg: DictConfig):
     model.eval()
-    # === CONFIGURATION ===
-    n_steps = cfg.evaluation.n_steps
     device = cfg.evaluation.device
-        
-    # === LOAD DATA ===
-    test_dataset, loader_te = load_testing_data(cfg)  # Replace path as needed
+    model.to(device)  # <-- move model to correct device
+
+    n_steps = cfg.evaluation.n_steps
+
+    test_dataset, loader_te = load_testing_data(cfg)
     sample_idx = torch.randint(0, len(test_dataset), (1,)).item()
-    sample = test_dataset[sample_idx].to(device)  # Shape: [T, C, H, W]
-    
-    gt_sequence = sample[:n_steps]  # Ground truth (25 frames)
-    
-    # === INITIAL CONDITION ===
-    x0 = gt_sequence[0].unsqueeze(0)  # Shape: [1, C, H, W]
-    
-    pred_sequence, mse_per_step = get_pred_seq(x0, gt_sequence, n_steps, model)
-    # === STACK RESULTS ===
+    sample = test_dataset[sample_idx].to(device)
+
+    gt_sequence = sample[:n_steps].to(device)
+
+    x0 = gt_sequence[0].unsqueeze(0).to(device)
+
+    pred_sequence, mse_per_step = get_pred_seq(x0, gt_sequence, n_steps, model, device)
+
     pred_sequence = torch.stack(pred_sequence)  # [T, C, H, W]
+
     gt_sequence = gt_sequence.cpu()
     pred_sequence = pred_sequence.cpu()
-    # === PLOTTING ===
+
     plot_sequence(gt_sequence, pred_sequence, cfg, step_indices=[0, 10, 15, 30, 45, 49])
-    # plot mse sequence
+
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, n_steps), mse_per_step, marker='o')
     plt.title('MSE per Step')
     plt.xlabel('Step')
     plt.ylabel('Mean Squared Error (MSE)')
     plt.grid()
-    eval_path = Path() / cfg.evaluation.eval_path
-    if not eval_path.exists():
-        eval_path.mkdir(parents=True)
+    eval_path = Path(cfg.evaluation.eval_path)
+    eval_path.mkdir(parents=True, exist_ok=True)
     plt.savefig(eval_path / 'mse_per_step.png')
     plt.close()
-    
-    # Density and Spectrum Evaluation
-    
-    # Spectrum will be computed on the generated sequence of images
-    compare_spectra(gt_sequence, pred_sequence, eval_path/'spectrum.png')
-    
-    # For density, we create test samples as done before and get the model prediction
-    
+
+    compare_spectra(gt_sequence, pred_sequence, eval_path / 'spectrum.png')
+
     real = []
     gen = []
-    
+
     with torch.no_grad():
         for batch, target in loader_te:
-            batch.to(cfg.evaluation.device)
-            gen.append(model(batch))
+            batch = batch.to(device)
+            target = target.to(device)
+            output = model(batch)
+            gen.append(output)
             real.append(target)
 
-    real = torch.cat(real, dim=0).squeeze(1)  # Shape: (N, H, W)
-    gen = torch.cat(gen, dim=0).squeeze(1)
-    
-    # === Run evaluation ===
+    real = torch.cat(real, dim=0).squeeze(1).cpu()
+    gen = torch.cat(gen, dim=0).squeeze(1).cpu()
+
     print("Computing evaluation metrics...")
     dens_mse = density_mse(real, gen)
     print(f"Density MSE: {dens_mse:.4e}")
-    # Optional: save evaluation plots
-    distribution_kde(real, gen, save_path = eval_path / "distribution_kde.png")
+
+    distribution_kde(real, gen, save_path=eval_path / "distribution_kde.png")
     print("Evaluation complete")
-    
+
     return None
 
 def plot_sequence(gt, pred, cfg, step_indices=None):
@@ -89,33 +83,27 @@ def plot_sequence(gt, pred, cfg, step_indices=None):
         axes[i, 0].set_title(f"Ground Truth Step {idx}")
         axes[i, 1].imshow(pred_img, cmap='viridis')
         axes[i, 1].set_title(f"Prediction Step {idx}")
-        
-    # save the plot inside the evaluation path
+
     eval_path = Path(cfg.evaluation.eval_path)
-    if not eval_path.exists():
-        eval_path.mkdir(parents=True)
+    eval_path.mkdir(parents=True, exist_ok=True)
     plt.savefig(eval_path / 'evaluation_sequence.png')
     return
 
-def get_pred_seq(x0, x_act, n_steps, model):
-    pred_sequence = [x0.squeeze(0)]
+def get_pred_seq(x0, x_act, n_steps, model, device):
+    pred_sequence = [x0.squeeze(0).detach()]
     mse_per_step = []
 
     x_curr = x0.clone()
     for step in range(1, n_steps):
-        # Sample next frame
         with torch.no_grad():
-            x_next = model(x_curr)
+            x_next = model(x_curr.to(device))  # ensure input is on correct device
 
-        # Save prediction
         pred_sequence.append(x_next.squeeze(0).detach())
 
-        # Compute MSE
-        gt = x_act[step]
+        gt = x_act[step].to(device)
         mse = F.mse_loss(x_next.squeeze(0), gt)
         mse_per_step.append(mse.item())
 
-        # Prepare for next step
         x_curr = x_next.detach()
-        
+
     return pred_sequence, mse_per_step
