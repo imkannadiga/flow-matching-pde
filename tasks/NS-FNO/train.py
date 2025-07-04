@@ -24,17 +24,19 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
     device = model_wr.device
 
     first = True
+    
+    run = None
 
     if cfg.wandb.enabled:
-        wandb.init(
+        wandb.login()
+        run = wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
             name=cfg.wandb.name,
             group= cfg.wandb.model,
-            job_type="train",
             config=dict(cfg),  # Log full config as hyperparameters
         )
-        wandb.watch(model, log="all")
+        run.watch(model, log="all")
 
     epochs = cfg.train.epochs
     
@@ -123,9 +125,10 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf', te_loss=te_losses, te_epochs=eval_eps)
             else:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf')
-            
-            wandb.log(metrics)
+            if cfg.wandb.enabled:
+                run.log(metrics)
         
-    wandb.finish()
+    if cfg.wandb.enabled:
+        run.finish()
 
     return

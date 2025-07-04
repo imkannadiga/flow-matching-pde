@@ -24,7 +24,7 @@ model:
 
 train:
   lr: 0.0001
-  epochs: 5
+  epochs: 200
   eval_int: 15
   save_int: 30
 

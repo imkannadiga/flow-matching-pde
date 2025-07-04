@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 import sys
-from neuralop.models import LocalFNO as _FNO
+from neuralop.models import LocalFNO as _LNO
 
 """
  A version of the time-conditioned FNO model.
@@ -33,32 +33,32 @@ class LFNO(torch.nn.Module):
         
         #model = TFNO(n_modes=(16, 16), hidden_channels=32, projection_channels=64, factorization='tucker', rank=0.42)
         n_modes = (modes, ) * x_dim   # Same number of modes in each x dimension
-        in_channels = vis_channels + x_dim + 1  # visual channels + spatial embedding + time embedding
+        in_channels = vis_channels + x_dim  # visual channels + spatial embedding + time embedding
 
-        self.model = _FNO(n_modes=n_modes,  
+        self.model = _LNO(n_modes=n_modes,  
                          hidden_channels=hidden_channels, disco_kernel_shape=disco_kernel_shape,
                          in_channels=in_channels, out_channels=vis_channels, default_in_shape=default_in_shape)
         
         
-    def forward(self, t, u):
+    def forward(self, u):
         # u: (batch_size, channels, h, w)
         # t: either scalar or (batch_size,)
 
-        t = t / self.t_scaling
+        # t = t / self.t_scaling
         batch_size = u.shape[0]
         dims = u.shape[2:]
         
-        if t.dim() == 0 or t.numel() == 1:
-            t = torch.ones(u.shape[0], device=t.device) * t
+        # if t.dim() == 0 or t.numel() == 1:
+        #     t = torch.ones(u.shape[0], device=t.device) * t
 
-        assert t.dim() == 1
-        assert t.shape[0] == u.shape[0]
+        # assert t.dim() == 1
+        # assert t.shape[0] == u.shape[0]
 
         # Concatenate time as a new channel
-        t = t_allhot(t, u.shape)
+        # t = t_allhot(t, u.shape)
         # Concatenate position as new channel(s)
         posn_emb = make_posn_embed(batch_size, dims).to(u.device)
-        u = torch.cat((u, posn_emb, t), dim=1).float() # todo fix precision
+        u = torch.cat((u, posn_emb), dim=1).float() # todo fix precision
         
         out = self.model(u)
 
