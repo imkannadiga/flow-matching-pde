@@ -35,9 +35,9 @@ def evaluate_model(model, cfg:DictConfig):
     gt_sequence = gt_sequence.cpu()
     pred_sequence = pred_sequence.cpu()
     # === PLOTTING ===
-    plot_sequence(gt_sequence, pred_sequence, cfg, step_indices=[0, 5, 10, 15, 20, 24])
+    plot_sequence(gt_sequence, pred_sequence, cfg, step_indices=[0, 10, 15, 30, 45, 50])
     # plot mse sequence
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(10, 6))
     plt.plot(range(1, n_steps), mse_per_step, marker='o')
     plt.title('MSE per Step')
     plt.xlabel('Step')
@@ -61,8 +61,9 @@ def evaluate_model(model, cfg:DictConfig):
     
     with torch.no_grad():
         for batch, target in loader_te:
-            gen.append(model(batch).detach().cpu())
-            real.append(target.detach().cpu())
+            batch.to(cfg.evaluation.device)
+            gen.append(model(batch))
+            real.append(target)
 
     real = torch.cat(real, dim=0).squeeze(1)  # Shape: (N, H, W)
     gen = torch.cat(gen, dim=0).squeeze(1)
