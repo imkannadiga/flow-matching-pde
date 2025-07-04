@@ -59,14 +59,14 @@ def load_testing_data(cfg: DictConfig):
     
     # Rearrange to [N, T, C, H, W]
     dataset = dataset.permute(3, 0, 1, 2)   # [N, T, H, W]
-    dataset = dataset.unsqueeze(2)         # Add channel dim → [N, T, 1, H, W]
+    raw_dataset = dataset.unsqueeze(2)         # Add channel dim → [N, T, 1, H, W]
 
-    dataset = NavierStokesDataset(dataset)
+    dataset = NavierStokesDataset(raw_dataset)
     dataset = random_split(dataset, [cfg.data.n_tr, cfg.data.n_te, len(dataset) - cfg.data.n_tr - cfg.data.n_te])[1]  # Get only test data
 
-    seq_pairs = NavierStokesDataset(create_sequential_pairs(dataset))
+    seq_pairs = NavierStokesDataset(dataset)
 
-    return dataset, DataLoader(seq_pairs)
+    return raw_dataset, DataLoader(seq_pairs)
 
 
 def read_data(file_path):
