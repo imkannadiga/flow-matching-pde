@@ -35,7 +35,7 @@ def evaluate_model(model, cfg:DictConfig):
     gt_sequence = gt_sequence.cpu()
     pred_sequence = pred_sequence.cpu()
     # === PLOTTING ===
-    plot_sequence(gt_sequence, pred_sequence, cfg, step_indices=[0, 10, 15, 30, 45, 50])
+    plot_sequence(gt_sequence, pred_sequence, cfg, step_indices=[0, 10, 15, 30, 45, 49])
     # plot mse sequence
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, n_steps), mse_per_step, marker='o')
