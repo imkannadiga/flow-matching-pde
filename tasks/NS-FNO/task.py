@@ -10,12 +10,14 @@ from models.fno import FNO
 from train import train_model
 from eval import evaluate_model
 from data import load_data
+import wandb
 
 @hydra.main(config_path="../../config/NS-FNO", config_name="config", version_base=None)
 def run_task(cfg: DictConfig):
     '''
     FFM with Fourier neural operator (FNO)
     '''
+    wandb.init(mode="disabled")
     # Load data using data.py
     print(f"Loading data with configuration: {cfg.data}")
     loader_tr, loader_te = load_data(cfg)

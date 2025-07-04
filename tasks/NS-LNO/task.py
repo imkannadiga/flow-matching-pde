@@ -10,12 +10,14 @@ from models.lno import LFNO
 from train import train_model
 from eval import evaluate_model
 from data import load_data
+import wandb
 
 @hydra.main(config_path="../../config/NS-LNO", config_name="config", version_base=None)
 def run_task(cfg: DictConfig):
     '''
     FFM with Local Fourier neural operator (L-FNO)
     '''
+    wandb.init(mode="disabled")
     # Load data using data.py
     print(f"Loading data with configuration: {cfg.data}")
     loader_tr, loader_te = load_data(cfg)
@@ -37,7 +39,7 @@ def run_task(cfg: DictConfig):
     
     # Evaluate the model and save results in ../results/<task_name>/
     print("Evaluating model...")
-    evaluate_model(model_wrapper, cfg, loader_te)
+    evaluate_model(model_wrapper, cfg)
     print("Evaluation completed.")
     
 if __name__ == "__main__":

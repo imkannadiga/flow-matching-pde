@@ -25,7 +25,7 @@ model:
   device: "cuda:1"
 train:
   lr: 0.0001
-  epochs: 200
+  epochs: 2
   eval_int: 15
   save_int: 30
 
@@ -41,7 +41,7 @@ evaluation:
   device: "cuda:1"
   eval_path: "./tasks/NS-LNO/evaluation"
 wandb:
-  project: "FunctionalFlowMatching"
+  project: "FFM-LFNO"
   name: "FFM - Navier Stokes"
   model: "LFNO"
   entity: "hathreyap-university-of-stuttgart"
