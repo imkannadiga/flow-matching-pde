@@ -36,7 +36,7 @@ class FNO(torch.nn.Module):
 
         self.model = _FNO(n_modes=n_modes, 
                          hidden_channels=hidden_channels, projection_channels=proj_channels,
-                         in_channels=in_channels, out_channels=vis_channels)
+                         in_channels=x_dim, out_channels=vis_channels)
         
         
     def forward(self, u):
