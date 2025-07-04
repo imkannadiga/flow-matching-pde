@@ -32,11 +32,11 @@ class FNO(torch.nn.Module):
         
         #model = TFNO(n_modes=(16, 16), hidden_channels=32, projection_channels=64, factorization='tucker', rank=0.42)
         n_modes = (modes, ) * x_dim   # Same number of modes in each x dimension
-        in_channels = vis_channels + x_dim + 1  # visual channels + spatial embedding + time embedding
+        in_channels = vis_channels + x_dim  # visual channels + spatial embedding + time embedding
 
         self.model = _FNO(n_modes=n_modes, 
                          hidden_channels=hidden_channels, projection_channels=proj_channels,
-                         in_channels=x_dim, out_channels=vis_channels)
+                         in_channels=in_channels, out_channels=vis_channels)
         
         
     def forward(self, u):
