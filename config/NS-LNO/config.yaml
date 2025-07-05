@@ -25,7 +25,7 @@ model:
   device: "cuda:1"
 train:
   lr: 0.0001
-  epochs: 2
+  epochs: 300
   eval_int: 15
   save_int: 30
 
