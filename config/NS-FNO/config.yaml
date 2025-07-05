@@ -40,7 +40,7 @@ evaluation:
   device: 'cuda:0'
   eval_path: "./tasks/NS-FNO/evaluation"
 wandb:
-  project: "FFM-FNO"
+  project: "FFM"
   model: "FNO"
   entity: "hathreyap-university-of-stuttgart"
   enabled: True
