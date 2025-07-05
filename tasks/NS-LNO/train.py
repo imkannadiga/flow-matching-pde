@@ -32,7 +32,6 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
         run = wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
-            name=cfg.wandb.name,
             group= cfg.wandb.model,
             config=dict(cfg),  # Log full config as hyperparameters
         )
@@ -129,6 +128,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
                 run.log(metrics)
         
     if cfg.wandb.enabled:
+        wandb.unwatch(model)
         run.finish()
 
     return

@@ -42,7 +42,6 @@ evaluation:
   eval_path: "./tasks/NS-LNO/evaluation"
 wandb:
   project: "FFM-LFNO"
-  name: "FFM - Navier Stokes"
   model: "LFNO"
   entity: "hathreyap-university-of-stuttgart"
   enabled: True
