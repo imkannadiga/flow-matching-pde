@@ -44,3 +44,5 @@ wandb:
   model: "FNO"
   entity: "hathreyap-university-of-stuttgart"
   enabled: True
+  dir: "./wandb-logs/FNO"  # Directory to save wandb logs
+
