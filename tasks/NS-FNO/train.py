@@ -27,14 +27,15 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
     run = None
 
     if cfg.wandb.enabled:
-        wandb.init(
+        print("wandb config ::: ", cfg.wandb)
+        run = wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
             group= cfg.wandb.model,
             config=dict(cfg),  # Log full config as hyperparameters
             dir=cfg.wandb.dir
         )
-        wandb.watch(model, log="all")
+        run.watch(model, log="all")
 
     epochs = cfg.train.epochs
     
@@ -124,10 +125,10 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
             else:
                 plot_loss_curve(tr_losses, save_path / 'loss.pdf')
             if cfg.wandb.enabled:
-                wandb.log(metrics)
+                run.log(metrics)
         
     if cfg.wandb.enabled:
-        wandb.unwatch(model)
-        wandb.finish()
+        run.unwatch(model)
+        run.finish()
 
     return

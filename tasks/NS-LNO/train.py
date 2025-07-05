@@ -27,6 +27,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
     run = None
 
     if cfg.wandb.enabled:
+        print("wandb config ::: ", cfg.wandb)
         run = wandb.init(
             entity=cfg.wandb.entity if cfg.wandb.entity else None,
             project=cfg.wandb.project,
@@ -127,7 +128,7 @@ def train_model(model_wr, cfg, train_loader, test_loader=None):
                 run.log(metrics)
         
     if cfg.wandb.enabled:
-        wandb.unwatch(model)
+        run.unwatch(model)
         run.finish()
 
     return
