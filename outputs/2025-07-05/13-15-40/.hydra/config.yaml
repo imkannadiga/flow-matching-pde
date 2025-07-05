@@ -1,0 +1,44 @@
+data:
+  root_dir: ./data/
+  filename: fno_ns_Re20_N5000_T50.npy
+  n_tr: 4000
+  n_te: 1000
+  batch_size: 256
+model:
+  modes: 16
+  visch: 1
+  hch: 64
+  xdim: 2
+  t_scaling: 1000
+  disco_kernel_shape:
+  - 5
+  - 5
+  default_in_shape:
+  - 64
+  - 64
+  input_dim: 2
+  hidden_dim: 64
+  lengthscale: 0.001
+  var: 1.0
+  sigma_min: 0.0001
+  device: cuda:1
+train:
+  lr: 0.0001
+  epochs: 2
+  eval_int: 15
+  save_int: 30
+  scheduler_step_size: 25
+  scheduler_gamma: 0.5
+  generate: true
+  save_path: ./tasks/NS-LNO/results/
+  checkpoint_dir: ./tasks/NS-LNO/checkpoints
+evaluation:
+  n_steps: 50
+  device: cuda:1
+  eval_path: ./tasks/NS-LNO/evaluation
+wandb:
+  project: FFM
+  model: LFNO
+  entity: hathreyap-university-of-stuttgart
+  enabled: true
+  dir: ./wandb-logs/LFNO
