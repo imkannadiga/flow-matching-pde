@@ -18,7 +18,7 @@ class BaseSequentialDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, idx):
-        return {"x":self.X[idx],"y":self.Y[idx]}
+        return {"u":self.X[idx],"y":self.Y[idx]}
 
     @staticmethod
     def create_sequential_pairs(data):
