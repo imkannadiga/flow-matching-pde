@@ -36,7 +36,6 @@ class FNONSTask(BaseTask):
             optimizer=optimizer,
             scheduler=scheduler,
             save_every=self.train_cfg.save_int,
-            save_best=True,
             save_dir=self.train_cfg.save_path,
         )
         
