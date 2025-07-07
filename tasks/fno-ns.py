@@ -21,7 +21,7 @@ class FNONSTask(BaseTask):
         trainer = Trainer(
             model=self.model,
             n_epochs=self.train_cfg.epochs,
-            wandb_log=self.train_cfg.wandb.enabled,
+            wandb_log=self.wandb_cfg.use_wandb,
             device=self.train_cfg.device,
             eval_interval=self.train_cfg.eval_int,
         )
