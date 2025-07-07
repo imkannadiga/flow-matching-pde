@@ -44,11 +44,11 @@ def evaluate(cfg: DictConfig):
     # Full dataset evaluation
     real, gen = [], []
     with torch.no_grad():
-        for batch, target in loader_te:
-            batch, target = batch.to(device), target.to(device)
+        for batch in loader_te:
+            batch["x"], batch["y"] = batch["x"].to(device), batch["y"].to(device)
             output = model(batch)
             gen.append(output)
-            real.append(target)
+            real.append(batch["y"])
 
     real = torch.cat(real, dim=0).squeeze(1).cpu()
     gen = torch.cat(gen, dim=0).squeeze(1).cpu()
