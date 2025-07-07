@@ -39,13 +39,13 @@ class FNO(torch.nn.Module):
                          in_channels=in_channels, out_channels=vis_channels)
         
         
-    def forward(self, u):
+    def forward(self, x, **kwargs):
         # u: (batch_size, channels, h, w)
         # t: either scalar or (batch_size,)
 
         #t = t / self.t_scaling
-        batch_size = u.shape[0]
-        dims = u.shape[2:]
+        batch_size = x.shape[0]
+        dims = x.shape[2:]
         
         #if t.dim() == 0 or t.numel() == 1:
         #    t = torch.ones(u.shape[0], device=t.device) * t
@@ -56,10 +56,10 @@ class FNO(torch.nn.Module):
         # Concatenate time as a new channel
         #t = t_allhot(t, u.shape)
         # Concatenate position as new channel(s)
-        posn_emb = make_posn_embed(batch_size, dims).to(u.device)
-        u = torch.cat((u, posn_emb), dim=1).float() # todo fix precision
-        
-        out = self.model(u)
+        posn_emb = make_posn_embed(batch_size, dims).to(x.device)
+        x = torch.cat((x, posn_emb), dim=1).float() # todo fix precision
+
+        out = self.model(x)
 
         return out
     
