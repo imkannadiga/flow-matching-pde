@@ -1,0 +1,8 @@
+use_wandb: true
+project: flow-matching
+entity: hathreyap-university-of-stuttgart
+run_name: ${now:%Y-%m-%d}_${model}_${dataset}
+group: null
+tags: [flow-matching, ${model}, ${dataset}]
+mode: online  # or "offline"
+config_log_interval: 100

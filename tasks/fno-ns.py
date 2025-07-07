@@ -1,0 +1,42 @@
+from tasks.base import BaseTask
+import torch
+from neuralop.training.trainer import Trainer
+
+
+class FNONSTask(BaseTask):
+    def run(self):
+        # Load data
+        train_loader, test_loader = self.dataset.get_dataloaders()
+
+        print(f"[INFO] Training model: {self.model.__class__.__name__}")
+        print(f"[INFO] Dataset: {self.dataset.__class__.__name__}")
+
+        # Optimizer
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.train_cfg.lr)
+        
+        # Scheduler
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.train_cfg.scheduler_step_size, gamma=self.train_cfg.scheduler_gamma)
+        
+        # Training configuration
+        trainer = Trainer(
+            model=self.model,
+            n_epochs=self.train_cfg.epochs,
+            wandb_log=self.train_cfg.wandb.enabled,
+            device=self.train_cfg.device,
+            eval_interval=self.train_cfg.eval_int,
+        )
+        
+        train_metrics = trainer.train(
+            train_loaders=train_loader,
+            test_loaders=test_loader,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            save_every=self.train_cfg.save_int,
+            save_best=True,
+            save_dir=self.train_cfg.save_path,
+        )
+        
+        print(f"[INFO] Training completed for model: {self.model.__class__.__name__}")
+        
+        # TODO: log training metrics
+        
