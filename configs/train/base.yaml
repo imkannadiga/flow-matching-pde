@@ -7,3 +7,5 @@ scheduler_step_size: 25
 scheduler_gamma: 0.5
 
 save_path: /checkpoints
+
+device: cuda

@@ -27,7 +27,7 @@ class FNONSTask(BaseTask):
         )
         
         train_metrics = trainer.train(
-            train_loaders=train_loader,
+            train_loader=train_loader,
             test_loaders=test_loader,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -35,6 +35,10 @@ class FNONSTask(BaseTask):
             save_best=True,
             save_dir=self.train_cfg.save_path,
         )
+        
+        # Log training metrics to local save directory
+        print(f"[INFO] Training metrics: {train_metrics}")
+
         
         print(f"[INFO] Training completed for model: {self.model.__class__.__name__}")
         
