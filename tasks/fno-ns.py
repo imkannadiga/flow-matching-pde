@@ -26,9 +26,13 @@ class FNONSTask(BaseTask):
             eval_interval=self.train_cfg.eval_int,
         )
         
+        test_loaders = {
+            "test": test_loader,
+        }
+        
         train_metrics = trainer.train(
             train_loader=train_loader,
-            test_loaders=test_loader,
+            test_loaders=test_loaders,
             optimizer=optimizer,
             scheduler=scheduler,
             save_every=self.train_cfg.save_int,
