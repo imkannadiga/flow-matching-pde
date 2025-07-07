@@ -1,5 +1,5 @@
 lr: 0.0001
-nepoch: 200
+epochs: 200
 eval_int: 10
 save_int: 20
 
