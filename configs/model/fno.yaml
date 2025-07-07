@@ -1,0 +1,8 @@
+_target_: models.fno.FNO
+
+modes: 64
+vis_channels: 1
+hidden_channels: 64
+proj_channels: 64
+x_dim: 2
+t_scaling: 1000

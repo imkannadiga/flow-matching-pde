@@ -6,7 +6,7 @@ from evaluation.eval import evaluate
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     # Optional wandb init
-    if cfg.task.train:
+    if cfg.task.do_train:
         if cfg.get("wandb", {}).get("use_wandb", False):
             import wandb
             wandb.init(
@@ -24,7 +24,7 @@ def main(cfg: DictConfig):
         if cfg.get("wandb", {}).get("use_wandb", False):
             wandb.finish()
     
-    if cfg.task.evaluate:
+    if cfg.task.do_evaluate:
         # Run evaluation by passing the entire config
         evaluate(cfg)
 

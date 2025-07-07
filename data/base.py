@@ -37,12 +37,17 @@ class BaseSequentialDataset(Dataset):
 
 
 class BaseDataModule(abc.ABC):
-    def __init__(self, cfg: DictConfig):
-        self.cfg = cfg
-        self.data_cfg = cfg.data
-        self.batch_size = self.data_cfg.batch_size
-        self.seed = self.data_cfg.get("seed", 42)
-
+    def __init__(self, name: str, data_dir: str, filename: str, batch_size: int, n_tr:int, n_te:int):
+        self.name = name
+        self.cfg = DictConfig({
+            'root_dir': data_dir,
+            'filename': filename,
+            'n_tr': n_tr,
+            'n_te': n_te
+        })
+        self.batch_size = batch_size
+        self.seed = 42
+        
     def get_dataloaders(self):
         """
         Loads, processes, splits the dataset into train/test and returns dataloaders.
@@ -54,8 +59,8 @@ class BaseDataModule(abc.ABC):
         # Perform splits
         torch.manual_seed(self.seed)
         n_total = len(dataset)
-        n_tr = self.data_cfg.n_tr
-        n_te = self.data_cfg.n_te
+        n_tr = self.cfg.n_tr
+        n_te = self.cfg.n_te
         splits = [n_tr, n_te, n_total - n_tr - n_te]
         data_tr, data_te, _ = random_split(dataset, splits)
 
@@ -74,7 +79,7 @@ class BaseDataModule(abc.ABC):
         dataset = BaseSequentialDataset(processed)
 
         torch.manual_seed(self.seed)
-        splits = [self.data_cfg.n_tr, self.data_cfg.n_te, len(dataset) - self.data_cfg.n_tr - self.data_cfg.n_te]
+        splits = [self.cfg.n_tr, self.cfg.n_te, len(dataset) - self.cfg.n_tr - self.cfg.n_te]
         test_split = random_split(dataset, splits)[1]
 
         return processed, DataLoader(test_split, batch_size=self.batch_size, shuffle=False)
@@ -83,7 +88,7 @@ class BaseDataModule(abc.ABC):
         """
         Reads raw data file. Override for dataset-specific loading logic.
         """
-        file_path = os.path.join(self.data_cfg.root_dir, self.data_cfg.filename)
+        file_path = os.path.join(self.cfg.root_dir, self.cfg.filename)
         if file_path.endswith(".npy"):
             data = torch.from_numpy(np.load(file_path, allow_pickle=True)).float()
         elif file_path.endswith(".pt"):
