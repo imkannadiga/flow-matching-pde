@@ -14,7 +14,7 @@ from data.navier_stokes import NSDataModule
 
 class NSEvaluator(BaseEvaluator):
     def _load_dataset(self):
-        dataset = NSDataModule(**self.cfg.data)
+        dataset = NSDataModule(**self.cfg.eval.data)
         _, loader_te = dataset.get_testing_data()
         return dataset, loader_te
 
@@ -33,23 +33,23 @@ class NSEvaluator(BaseEvaluator):
         idx = torch.randint(0, len(test_dataset), (1,)).item()
         sample = test_dataset[idx].to(device)
 
-        gt_sequence = sample[:cfg.n_steps]
+        gt_sequence = sample[:cfg.eval.n_steps]
         x0 = gt_sequence[0].unsqueeze(0)
 
-        pred_sequence, mse_per_step = get_pred_seq(x0, gt_sequence, cfg.n_steps, self.model, device)
+        pred_sequence, mse_per_step = get_pred_seq(x0, gt_sequence, cfg.eval.n_steps, self.model, device)
 
         plot_sequence(gt_sequence.cpu(), torch.stack(pred_sequence).cpu(), cfg)
 
         plt.figure()
-        plt.plot(range(1, cfg.n_steps), mse_per_step, marker="o")
+        plt.plot(range(1, cfg.eval.n_steps), mse_per_step, marker="o")
         plt.title("MSE per Step")
         plt.xlabel("Step")
         plt.ylabel("MSE")
-        os.makedirs(cfg.eval_path, exist_ok=True)
-        plt.savefig(f"{cfg.eval_path}/mse_per_step.png")
+        os.makedirs(cfg.eval.eval_path, exist_ok=True)
+        plt.savefig(f"{cfg.eval.eval_path}/mse_per_step.png")
         plt.close()
 
-        compare_spectra(gt_sequence.cpu(), torch.stack(pred_sequence).cpu(), f"{cfg.eval_path}/spectrum.png")
+        compare_spectra(gt_sequence.cpu(), torch.stack(pred_sequence).cpu(), f"{cfg.eval.eval_path}/spectrum.png")
 
     def full_dataset_metrics(self):
         real, gen = [], []
@@ -64,4 +64,4 @@ class NSEvaluator(BaseEvaluator):
         gen = torch.cat(gen, dim=0).squeeze(1).cpu()
 
         print(f"[Evaluator] Density MSE: {density_mse(real, gen):.4e}")
-        distribution_kde(real, gen, f"{self.cfg.eval_path}/distribution_kde.png")
+        distribution_kde(real, gen, f"{self.cfg.eval.eval_path}/distribution_kde.png")
