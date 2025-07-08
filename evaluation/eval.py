@@ -11,7 +11,7 @@ def evaluate(cfg: DictConfig):
     device = cfg.eval.device
     
     # TODO: Load model from latest training run
-    model = load_model_from_manifest(cfg.train.save_path, model_raw=cfg.model)
+    model = load_model_from_manifest(cfg.train.save_path, model_raw=instantiate(cfg.model))
     model.eval()
     model.to(device)
 
