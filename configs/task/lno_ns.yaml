@@ -1,3 +1,10 @@
+_target_: tasks.lno-ns.LNONSTask
 name: lno-ns
-train: true
-evaluate: true
+do_train: true
+do_evaluate: true
+
+model: ${model}
+dataset: ${data}
+train: ${train}
+eval: ${eval}
+wandb: ${wandb}

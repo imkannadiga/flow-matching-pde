@@ -2,6 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 import sys
 from neuralop.models import LocalFNO as _LNO
+from neuralop.models import base_model
 
 """
  A version of the time-conditioned FNO model.
@@ -20,7 +21,7 @@ def t_allhot(t, shape):
     return t
 
 
-class LFNO(torch.nn.Module):
+class LFNO(base_model.BaseModel):
     def __init__(self, modes, vis_channels, hidden_channels, x_dim=1, default_in_shape=[64,64],  
                  disco_kernel_shape=(5, 5), t_scaling=1000):
         super(LFNO, self).__init__()
