@@ -1,4 +1,5 @@
 import os
+from omegaconf import DictConfig
 import torch
 from matplotlib import pyplot as plt
 from evaluation.base import BaseEvaluator
@@ -12,6 +13,8 @@ from evaluation.eval_utils import (
 from data.navier_stokes import NSDataModule
 
 class NSEvaluator(BaseEvaluator):
+    def __init__(self, cfg: DictConfig):
+        super().__init__(cfg)
     def _load_dataset(self):
         dataset = NSDataModule(**self.cfg.data)
         _, loader_te = dataset.get_testing_data()
