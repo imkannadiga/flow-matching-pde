@@ -8,3 +8,4 @@ data: ${data}
 
 evaluator:
     _target_: evaluation.ns_evaluator.NSEvaluator
+    _partial_: true

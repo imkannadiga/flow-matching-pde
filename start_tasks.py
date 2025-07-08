@@ -26,7 +26,7 @@ def main(cfg: DictConfig):
     
     if cfg.task.do_evaluate:
         # Run evaluation by passing the entire config
-        evaluator = instantiate(cfg.eval.evaluator)
+        evaluator = instantiate(cfg.eval.evaluator, cfg)
         evaluator.run()
 
 if __name__ == "__main__":
