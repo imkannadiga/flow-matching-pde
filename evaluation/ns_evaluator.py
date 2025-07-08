@@ -64,4 +64,4 @@ class NSEvaluator(BaseEvaluator):
         gen = torch.cat(gen, dim=0).squeeze(1).cpu()
 
         print(f"[Evaluator] Density MSE: {density_mse(real, gen):.4e}")
-        distribution_kde(real, gen, f"{self.cfg.eval.eval_path}/distribution_kde.png")
+        distribution_kde(real=real, gen=gen, save_path=f"{self.cfg.eval.eval_path}/distribution_kde.png")
