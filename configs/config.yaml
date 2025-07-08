@@ -1,4 +1,5 @@
 defaults:
+  - _self_
   - task: fno-ns
   - data: navier_stokes
   - model: fno
