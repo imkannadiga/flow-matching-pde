@@ -6,6 +6,6 @@ save_int: 20
 scheduler_step_size: 25
 scheduler_gamma: 0.5
 
-save_path: /checkpoints
+save_path: ${hydra:run.dir}/checkpoints
 
 device: cuda
