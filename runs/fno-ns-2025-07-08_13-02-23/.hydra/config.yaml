@@ -1,0 +1,46 @@
+task:
+  _target_: tasks.fno-ns.FNONSTask
+  name: fno-ns
+  do_train: true
+  do_evaluate: true
+  model: ${model}
+  dataset: ${data}
+  train: ${train}
+  eval: ${eval}
+  wandb: ${wandb}
+data:
+  _target_: data.navier_stokes.NSDataModule
+  name: navier_stokes
+  data_dir: ${oc.env:PROJECT_ROOT}/data/_data/navier_stokes/
+  filename: fno_ns_Re20_N5000_T50.npy
+  batch_size: 256
+  n_tr: 4000
+  n_te: 1000
+model:
+  _target_: models.fno.FNO
+  modes: 64
+  vis_channels: 1
+  hidden_channels: 64
+  proj_channels: 64
+  x_dim: 2
+  t_scaling: 1000
+train:
+  lr: 0.0001
+  epochs: 10
+  eval_int: 5
+  save_int: 10
+  scheduler_step_size: 25
+  scheduler_gamma: 0.5
+  save_path: ${hydra:run.dir}/debug/checkpoints
+  device: cuda
+eval:
+  n_steps: 50
+  eval_path: ${hydra:run.dir}/evaluation
+  device: cuda
+  model: ${model}
+  train: ${train}
+  data: ${data}
+  evaluator:
+    _target_: evaluation.ns_evaluator.NSEvaluator
+wandb:
+  use_wandb: false
