@@ -1,3 +1,10 @@
 n_steps: 50
 eval_path: ${hydra:run.dir}/evaluation
 device: cuda
+
+model: ${model}
+train: ${train}
+data: ${data}
+
+evaluator:
+    _target_: evaluation.ns_evaluator.NSEvaluator
