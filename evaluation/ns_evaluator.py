@@ -56,7 +56,7 @@ class NSEvaluator(BaseEvaluator):
         with torch.no_grad():
             for batch in self.loader_te:
                 batch["x"], batch["y"] = batch["x"].to(self.device), batch["y"].to(self.device)
-                output = self.model(batch)
+                output = self.model(batch["x"])
                 gen.append(output)
                 real.append(batch["y"])
 
