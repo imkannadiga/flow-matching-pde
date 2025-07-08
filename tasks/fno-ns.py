@@ -22,6 +22,7 @@ class FNONSTask(BaseTask):
             wandb_log=self.wandb_cfg.use_wandb,
             device=torch.device(self.train_cfg.device),
             eval_interval=self.train_cfg.eval_int,
+            verbose=self.train_cfg.verbose,
         )
         
         test_loaders = {

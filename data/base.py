@@ -37,7 +37,7 @@ class BaseSequentialDataset(Dataset):
 
 
 class BaseDataModule(abc.ABC):
-    def __init__(self, name: str, data_dir: str, filename: str, batch_size: int, n_tr:int, n_te:int):
+    def __init__(self, name: str, data_dir: str, filename: str, batch_size: int, n_tr:int, n_te:int, **kwargs):
         self.name = name
         self.cfg = DictConfig({
             'root_dir': data_dir,

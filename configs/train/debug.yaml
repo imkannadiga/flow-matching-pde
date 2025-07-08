@@ -9,3 +9,5 @@ scheduler_gamma: 0.5
 save_path: ${hydra:run.dir}/debug/checkpoints
 
 device: cuda
+
+verbose: true
