@@ -1,9 +1,9 @@
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate
 from evaluation.eval_utils import load_model_from_manifest
 
 class BaseEvaluator:
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg):
         self.cfg = cfg
         self.device = cfg.eval.device
         self.model = self._load_model().to(self.device).eval()

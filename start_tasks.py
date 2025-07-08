@@ -1,7 +1,7 @@
 import hydra
 from omegaconf import DictConfig
 from hydra.utils import instantiate
-from evaluation.eval import evaluate
+from evaluation.ns_evaluator import NSEvaluator
 
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig):
@@ -26,7 +26,7 @@ def main(cfg: DictConfig):
     
     if cfg.task.do_evaluate:
         # Run evaluation by passing the entire config
-        evaluator = instantiate(cfg.eval.evaluator, cfg)
+        evaluator = NSEvaluator(cfg=cfg)
         evaluator.run()
 
 if __name__ == "__main__":

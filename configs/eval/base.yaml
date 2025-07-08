@@ -5,6 +5,3 @@ device: cuda
 model: ${model}
 train: ${train}
 data: ${data}
-
-evaluator:
-    _target_: evaluation.ns_evaluator.NSEvaluator
