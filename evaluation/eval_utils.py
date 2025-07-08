@@ -12,13 +12,13 @@ def load_model_from_manifest(save_dir: Union[str, Path], model_raw: torch.nn.Mod
         save_dir = Path(save_dir)
 
     # Load the manifest file
-    manifest = torch.load(save_dir / "manifest.pt", map_location='cpu', weights_only=False)
+    manifest = torch.load(save_dir / "manifest.pt", map_location='cpu')
 
     # Path to the saved model state dict
     model_path = save_dir / manifest['model']
 
     # Instantiate model and load weights
-    state_dict = torch.load(model_path, map_location='cpu')
+    state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
     model_raw.load_state_dict(state_dict)
 
     return model_raw
