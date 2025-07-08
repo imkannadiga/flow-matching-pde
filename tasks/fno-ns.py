@@ -1,15 +1,13 @@
 from tasks.base import BaseTask
 import torch
 from neuralop.training.trainer import Trainer
+from pathlib import Path
 
 
 class FNONSTask(BaseTask):
     def run(self):
         # Load data
         train_loader, test_loader = self.dataset.get_dataloaders()
-
-        print(f"[INFO] Training model: {self.model.__class__.__name__}")
-        print(f"[INFO] Dataset: {self.dataset.__class__.__name__}")
 
         # Optimizer
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.train_cfg.lr)
@@ -29,6 +27,10 @@ class FNONSTask(BaseTask):
         test_loaders = {
             "test": test_loader,
         }
+        
+        save_path = Path(self.train_cfg.save_path)
+        if not save_path.exists():
+            save_path.mkdir()
         
         train_metrics = trainer.train(
             train_loader=train_loader,
