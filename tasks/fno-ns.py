@@ -30,7 +30,7 @@ class FNONSTask(BaseTask):
         
         save_path = Path(self.train_cfg.save_path)
         if not save_path.exists():
-            save_path.mkdir()
+            save_path.mkdir(parents=True)
         
         train_metrics = trainer.train(
             train_loader=train_loader,
