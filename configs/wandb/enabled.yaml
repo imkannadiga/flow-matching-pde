@@ -1,6 +1,5 @@
 use_wandb: true
-project: flow-matching
+project: ffm
 entity: hathreyap-university-of-stuttgart
-run_name: ${now:%Y-%m-%d}_${model}_${dataset}
 mode: online  # or "offline"
 config_log_interval: 100

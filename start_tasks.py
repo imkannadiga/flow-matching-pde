@@ -13,7 +13,6 @@ def main(cfg: DictConfig):
                 project=cfg.wandb.project,
                 entity=cfg.wandb.entity,
                 config=cfg,
-                name=cfg.wandb.run_name,
                 mode=cfg.wandb.mode,
             )
 
