@@ -2,6 +2,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra.utils import instantiate
 from evaluation.ns_evaluator import NSEvaluator
+from omegaconf import OmegaConf
 
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig):
@@ -12,7 +13,7 @@ def main(cfg: DictConfig):
             wandb.init(
                 project=cfg.wandb.project,
                 entity=cfg.wandb.entity,
-                config=cfg,
+                config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
                 mode=cfg.wandb.mode,
             )
 
