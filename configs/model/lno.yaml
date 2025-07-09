@@ -1,4 +1,4 @@
-_target_: models.lno.LNO
+_target_: models.lno.LFNO
 
 modes: 16
 vis_channels: 1
