@@ -37,7 +37,7 @@ class FMNSTask(BaseTask):
         dt = 1.0 / 50.0  # Assuming fixed Δt
 
         checkpoint_dir = Path(self.train_cfg.save_path)
-        checkpoint_dir.mkdir(exist_ok=True)
+        checkpoint_dir.mkdir(parents=True)
 
         train_metrics = []
         test_metrics = []
