@@ -36,7 +36,7 @@ class FMNSTask(BaseTask):
         save_int = self.train_cfg.save_int
         dt = 1.0 / 50.0  # Assuming fixed Δt
 
-        checkpoint_dir = Path(self.train_cfg.save_path) / "checkpoints"
+        checkpoint_dir = Path(self.train_cfg.save_path)
         checkpoint_dir.mkdir(exist_ok=True)
 
         train_metrics = []
