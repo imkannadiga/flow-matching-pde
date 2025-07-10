@@ -63,6 +63,8 @@ class UNetFlow(nn.Module):
         self.out_conv = nn.Conv2d(base_channels, out_channels, 1)  # predict velocity field
 
     def forward(self, x_t, t):
+        # Normalize time t to [0, 1] range
+        t = t / 50 # Hardcoded for 50 timesteps, adjust as needed 
         # x_t shape: [B, 2, H, W], t shape: [B,1]
         B, C, H, W = x_t.shape
         t_expanded = t.view(B, 1, 1, 1).expand(-1, 1, H, W)
@@ -88,6 +90,3 @@ class UNetFlow(nn.Module):
         out = self.out_conv(d1)  # [B, 2, H, W]
         return out
 
-def flow_matching_loss(v_pred, x_t, x_tp, dt):
-    v_true = (x_tp - x_t) / dt
-    return ((v_pred - v_true) ** 2).mean()
