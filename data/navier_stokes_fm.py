@@ -20,16 +20,25 @@ class FMSequentialDataset(Dataset):
     @staticmethod
     def create_sequential_pairs(data):
         """
-        Converts [N, T, C, H, W] → X, Y, T pairs.
+        Converts [N, T, C, H, W] → X, Y, sample_indices, time_steps.
         X = data at t, Y = data at t+1
+        sample_indices = which sample each pair came from (0 to N-1)
+        time_steps = time t of each pair
         """
         N, T, C, H, W = data.shape
-        X = data[:, :-1]
-        Y = data[:, 1:]
-        T = torch.arange(T - 1).repeat(N, 1)
-        X = X.reshape(-1, C, H, W)
+
+        X = data[:, :-1]  # shape: [N, T-1, C, H, W]
+        Y = data[:, 1:]   # shape: [N, T-1, C, H, W]
+
+        # Flatten across N and T-1
+        X = X.reshape(-1, C, H, W)  # shape: [N*(T-1), C, H, W]
         Y = Y.reshape(-1, C, H, W)
-        return X, Y, T
+
+        # Create sample indices and time steps
+        sample_indices = torch.arange(N).repeat_interleave(T - 1)  # [0,0,...,1,1,...,N-1]
+        time_steps = torch.arange(T - 1).repeat(N)                 # [0,1,...,T-2, 0,1,...]
+
+        return X, Y, sample_indices, time_steps
 
 class NSFMDataModule(BaseDataModule):
     
