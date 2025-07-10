@@ -34,11 +34,10 @@ class FMSequentialDataset(Dataset):
         X = X.reshape(-1, C, H, W)  # shape: [N*(T-1), C, H, W]
         Y = Y.reshape(-1, C, H, W)
 
-        # Create sample indices and time steps
-        sample_indices = torch.arange(N).repeat_interleave(T - 1)  # [0,0,...,1,1,...,N-1]
+        # Create time steps
         time_steps = torch.arange(T - 1).repeat(N)                 # [0,1,...,T-2, 0,1,...]
 
-        return X, Y, sample_indices, time_steps
+        return X, Y, time_steps
 
 class NSFMDataModule(BaseDataModule):
     
