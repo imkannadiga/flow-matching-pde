@@ -23,13 +23,16 @@ def load_model_from_manifest(save_dir: Union[str, Path], model_raw: torch.nn.Mod
 
     return model_raw
 
-def get_pred_seq(x0, x_act, n_steps, model, device):
+def get_pred_seq(x0, x_act, n_steps, model, device, include_time=False):
     pred_sequence = [x0.squeeze(0).detach()]
     mse_per_step = []
 
     x_curr = x0.clone().to(device)
     for step in range(1, n_steps):
         with torch.no_grad():
+            if(include_time):
+                # If the model expects time as input, append the current step 
+                x_curr = torch.cat((x_curr, torch.tensor([[step]], device=device).float()), dim=1)
             x_next = model(x_curr)
         pred_sequence.append(x_next.squeeze(0).detach())
         gt = x_act[step].to(device)
