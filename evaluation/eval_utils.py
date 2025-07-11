@@ -31,9 +31,9 @@ def get_pred_seq(x0, x_act, n_steps, model, device, include_time=False):
     for step in range(1, n_steps):
         with torch.no_grad():
             if(include_time):
-                # If the model expects time as input, append the current step 
-                x_curr = torch.cat((x_curr, torch.tensor([[step]], device=device).float()), dim=1)
-            x_next = model(x_curr)
+                x_next = model(x_t=x_curr, t=torch.tensor([step], device=device, dtype=torch.float32))
+            else:
+                x_next = model(x_curr)
         pred_sequence.append(x_next.squeeze(0).detach())
         gt = x_act[step].to(device)
         mse = F.mse_loss(x_next.squeeze(0), gt)
