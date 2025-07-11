@@ -106,6 +106,11 @@ class FMNSTask(BaseTask):
             scheduler.step()
 
         print("[INFO] Training complete.")
+        checkpoint_path = checkpoint_dir / f"manifest.pt"
+        torch.save({
+            "model": self.model.state_dict()
+        }, checkpoint_path)
+        print(f"Final model saved at {checkpoint_path}")
         print(f"[INFO] Final Training Metrics: {train_metrics}")
         if test_metrics:
             print(f"[INFO] Final Test Metrics: {test_metrics}")
