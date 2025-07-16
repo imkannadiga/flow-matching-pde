@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # --- U-Net Model for Flow Matching ---
-class UNetFlow(nn.Module):
-    def __init__(self, in_channels=3, out_channels=2, base_channels=64):
+class UNet(nn.Module):
+    def __init__(self, in_channels=3, out_channels=2, base_channels=64, **kwargs):
         super().__init__()
         # Encoder
         self.enc1 = nn.Sequential(

@@ -1,0 +1,19 @@
+_target_: training.trainer.Trainer
+
+model: ${model}
+n_epochs: 10
+wandb_log: ${wandb.use_wandb}
+device: "cuda"
+mixed_precision: False
+pre_train_processor: pre_train.ffm
+eval_interval: 5
+log_output: True
+use_distributed: False
+verbose: True
+
+config:
+  loss: loss.mse
+  optimizer: optimizer.adam
+  scheduler: scheduler.step_lr
+  save_every: 10
+  save_path: ${hydra:run.dir}/checkpoints

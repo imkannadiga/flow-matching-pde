@@ -1,0 +1,10 @@
+defaults:
+  - _self_
+  - data: navier_stokes
+  - model: fno
+  - trainer: debug
+  - wandb: disabled
+
+hydra:
+  run:
+    dir: runs/${model.name}-${data.name}-${now:%Y-%m-%d_%H-%M-%S}

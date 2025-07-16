@@ -1,0 +1,7 @@
+_target_: training.pre_train_processor.FlowMatchingDataProcessor
+
+kernel_length: 0.001
+kernel_variance: 1.0
+vp: False
+sigma_min: 1e-4
+device: cuda

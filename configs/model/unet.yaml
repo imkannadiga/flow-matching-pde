@@ -1,4 +1,6 @@
-_target_: models.FM.UNetFlow
+_target_: models.unet.UNet
+
+name: unet
 
 in_channels: 2
 out_channels: 1

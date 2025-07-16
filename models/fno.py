@@ -2,7 +2,6 @@ import torch
 import matplotlib.pyplot as plt
 import sys
 from neuralop.models import FNO as _FNO
-from neuralop.models import base_model
 
 """
  A version of the time-conditioned FNO model.
@@ -21,8 +20,8 @@ def t_allhot(t, shape):
     return t
 
 
-class FNO(base_model.BaseModel):
-    def __init__(self, modes, vis_channels, hidden_channels, proj_channels, x_dim=1, t_scaling=1000):
+class FNO(torch.nn.Module):
+    def __init__(self, modes, vis_channels, hidden_channels, proj_channels, x_dim=1, t_scaling=1000, **kwargs):
         super(FNO, self).__init__()
         
         self.t_scaling = t_scaling
@@ -33,34 +32,34 @@ class FNO(base_model.BaseModel):
         
         #model = TFNO(n_modes=(16, 16), hidden_channels=32, projection_channels=64, factorization='tucker', rank=0.42)
         n_modes = (modes, ) * x_dim   # Same number of modes in each x dimension
-        in_channels = vis_channels + x_dim  # visual channels + spatial embedding + time embedding
+        in_channels = vis_channels + x_dim + 1  # visual channels + spatial embedding + time embedding
 
         self.model = _FNO(n_modes=n_modes, 
                          hidden_channels=hidden_channels, projection_channels=proj_channels,
                          in_channels=in_channels, out_channels=vis_channels)
         
         
-    def forward(self, x, **kwargs):
+    def forward(self, t, u):
         # u: (batch_size, channels, h, w)
         # t: either scalar or (batch_size,)
 
-        #t = t / self.t_scaling
-        batch_size = x.shape[0]
-        dims = x.shape[2:]
+        t = t / self.t_scaling
+        batch_size = u.shape[0]
+        dims = u.shape[2:]
         
-        #if t.dim() == 0 or t.numel() == 1:
-        #    t = torch.ones(u.shape[0], device=t.device) * t
+        if t.dim() == 0 or t.numel() == 1:
+            t = torch.ones(u.shape[0], device=t.device) * t
 
-        #assert t.dim() == 1
-        #assert t.shape[0] == u.shape[0]
+        assert t.dim() == 1
+        assert t.shape[0] == u.shape[0]
 
         # Concatenate time as a new channel
-        #t = t_allhot(t, u.shape)
+        t = t_allhot(t, u.shape)
         # Concatenate position as new channel(s)
-        posn_emb = make_posn_embed(batch_size, dims).to(x.device)
-        x = torch.cat((x, posn_emb), dim=1).float() # todo fix precision
-
-        out = self.model(x)
+        posn_emb = make_posn_embed(batch_size, dims).to(u.device)
+        u = torch.cat((u, posn_emb, t), dim=1).float() # todo fix precision
+        
+        out = self.model(u)
 
         return out
     
