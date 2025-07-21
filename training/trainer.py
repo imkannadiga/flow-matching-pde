@@ -429,8 +429,8 @@ class Trainer:
             errors[key] /= self.n_samples
 
         # on last batch, log model outputs
-        if self.log_output and self.wandb_log:
-            errors[f"{log_prefix}_outputs"] = wandb.Image(outs)
+        # if self.log_output and self.wandb_log:
+        #     errors[f"{log_prefix}_outputs"] = wandb.Image(outs)
         
         return errors
     
@@ -488,9 +488,9 @@ class Trainer:
 
         if self.mixed_precision:
             with torch.autocast(device_type=self.autocast_device_type):
-                out = self.model(**sample)
+                out = self.model(**sample["x"])
         else:
-            out = self.model(**sample)
+            out = self.model(**sample["x"])
         
         if self.epoch == 0 and idx == 0 and self.verbose and isinstance(out, torch.Tensor):
             print(f"Raw outputs of shape {out.shape}")
@@ -502,9 +502,9 @@ class Trainer:
 
         if self.mixed_precision:
             with torch.autocast(device_type=self.autocast_device_type):
-                loss += training_loss(out, **sample)
+                loss += training_loss(out, sample["y"])
         else:
-            loss += training_loss(out, **sample)
+            loss += training_loss(out, sample["y"])
 
         if self.regularizer:
             loss += self.regularizer.loss
@@ -546,7 +546,7 @@ class Trainer:
 
         self.n_samples += sample["y"].size(0)
 
-        out = self.model(**sample)
+        out = self.model(**sample["x"])
 
         if self.data_processor is not None:
             out, sample = self.data_processor.postprocess(out, sample)
@@ -554,7 +554,7 @@ class Trainer:
         eval_step_losses = {}
 
         for loss_name, loss in eval_losses.items():
-            val_loss = loss(out, **sample)
+            val_loss = loss(out, sample["y"])
             eval_step_losses[loss_name] = val_loss
         
         if return_output:
@@ -626,13 +626,13 @@ class Trainer:
                 self.n_samples += sample["y"].shape[0]
                 sample_count_incr = True
 
-            out = self.model(**sample)
+            out = self.model(**sample["x"])
                 
             if self.data_processor is not None:
                 out, sample = self.data_processor.postprocess(out, sample, step=t)
             
             for loss_name, loss in eval_losses.items():
-                step_loss = loss(out, **sample)
+                step_loss = loss(out, sample["y"])
                 eval_step_losses[loss_name] += step_loss
             
             t += 1

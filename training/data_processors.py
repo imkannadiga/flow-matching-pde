@@ -138,6 +138,9 @@ class DefaultDataProcessor(DataProcessor):
         """
         
         return output, data_dict
+    
+    def forward(self, x):
+        return self.preprocess(x)
 
 class FlowMatchingDataProcessor(DefaultDataProcessor):
     """
@@ -148,6 +151,8 @@ class FlowMatchingDataProcessor(DefaultDataProcessor):
     """
     
     def __init__(self, kernel_length, kernel_variance, vp, sigma_min, device):
+        
+        super().__init__(device)
         
         self.gp = GPPrior(lengthscale=kernel_length, var=kernel_variance, device=device)
         self.device = device
@@ -175,10 +180,12 @@ class FlowMatchingDataProcessor(DefaultDataProcessor):
         
         # Sample from prior GP
         query_points = make_grid(dims)
+        
         noise = self.gp.sample(query_points, dims, n_samples=batch_size, n_channels=n_channels)
 
         # Construct mean/variance parameters
         t = reshape_for_batchwise(t, 1 + n_dims)
+        
         if self.vp:
             mu = self.alpha(1-t) * x_data
             sigma = torch.sqrt((1 - self.alpha(1-t)**2))
@@ -221,21 +228,25 @@ class FlowMatchingDataProcessor(DefaultDataProcessor):
         Returns:
             dict: The preprocessed sample.
         """
+        
+        sample = super().preprocess(sample)
+        
         batch_size = sample["x"].shape[0]
         
         # Sample a random time t from [0, 1)
         t = torch.rand(batch_size, device=self.device)
         
-        x_noisy = self.simulate(t, sample["x"])
+        x_noisy = self.simulate(t=t, x_data=sample["x"])
         
         # Get conditional vector fields
         target = self.get_conditional_fields(t, sample["x"], x_noisy)
 
-        sample["x"] = {
-            "u": x_noisy, 
-            "t": t
+        processed_sample = {
+            "x":{
+                "u": x_noisy,
+                "t":t
+            },
+            "y": target
         }
         
-        sample["y"] = target
-        
-        return super().preprocess(sample)
+        return processed_sample

@@ -1,12 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from neuralop.models import base_model
 
 # --- U-Net Model for Flow Matching ---
-class UNet(nn.Module):
+class UNet(base_model.BaseModel):
     def __init__(self, in_channels=3, out_channels=2, base_channels=64, **kwargs):
         super().__init__()
         # Encoder
+        # in_channels = input channels + time embedding
+        in_channels = in_channels + 1
+        
         self.enc1 = nn.Sequential(
             nn.Conv2d(in_channels, base_channels, 3, padding=1),
             nn.ReLU(),
@@ -62,13 +66,13 @@ class UNet(nn.Module):
 
         self.out_conv = nn.Conv2d(base_channels, out_channels, 1)  # predict velocity field
 
-    def forward(self, x_t, t):
+    def forward(self, u, t):
         # Normalize time t to [0, 1] range
         t = t / 50 # Hardcoded for 50 timesteps, adjust as needed 
         # x_t shape: [B, 2, H, W], t shape: [B,1]
-        B, C, H, W = x_t.shape
+        B, C, H, W = u.shape
         t_expanded = t.view(B, 1, 1, 1).expand(-1, 1, H, W)
-        x = torch.cat([x_t, t_expanded], dim=1)  # concat time as 3rd channel
+        x = torch.cat([u, t_expanded], dim=1)  # concat time as 2nd channel
 
         e1 = self.enc1(x)
         e2 = self.enc2(e1)

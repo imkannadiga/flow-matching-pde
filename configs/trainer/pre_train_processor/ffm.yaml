@@ -1,4 +1,4 @@
-_target_: training.pre_train_processor.FlowMatchingDataProcessor
+_target_: training.data_processors.FlowMatchingDataProcessor
 
 kernel_length: 0.001
 kernel_variance: 1.0

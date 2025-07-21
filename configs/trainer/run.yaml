@@ -1,31 +1,30 @@
 _target_: training.trainer.Trainer
 
 model: ${model}
-n_epochs: 10
+n_epochs: 300
 wandb_log: ${wandb.use_wandb}
 device: "cuda"
 mixed_precision: False
-eval_interval: 5
+eval_interval: 10
 log_output: True
 use_distributed: False
 verbose: True
 
-save_every: 10
+save_every: 20
 save_path: ${hydra:run.dir}/checkpoints
 
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
   lr: 1e-4
+
 scheduler:
   _target_: torch.optim.lr_scheduler.StepLR
   _partial_: true
-
   step_size: 25
 
 pre_train_processor:
   _target_: training.data_processors.FlowMatchingDataProcessor
-
   kernel_length: 0.001
   kernel_variance: 1.0
   vp: False

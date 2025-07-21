@@ -80,7 +80,7 @@ class GPPrior(gpytorch.models.ExactGP):
         """
         self.check_input(x, dims)
         x = x.to(self.device)
-        distr = self(x)
+        distr = self.forward(x)
         
         samples = distr.sample(sample_shape = torch.Size([n_samples * n_channels, ]))
         samples = samples.reshape(n_samples, n_channels, *dims)
