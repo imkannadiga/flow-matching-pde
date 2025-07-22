@@ -70,19 +70,20 @@ class BaseDataModule(abc.ABC):
 
         return train_loader, test_loader
 
-    def get_testing_data(self):
+    def get_testing_data(self, n_samples, data_loader=True):
         """
-        Returns raw tensor and testing dataloader.
+        Returns a testing dataloader.
         """
         raw = self.read_data()
         processed = self.preprocess(raw)
-        dataset = BaseSequentialDataset(processed)
+        
+        # extract random n_samples from the processed dataset
+        indices = torch.randperm(processed.size(0))[:n_samples]
+        test_dataset = processed[indices]
 
-        torch.manual_seed(self.seed)
-        splits = [self.cfg.n_tr, self.cfg.n_te, len(dataset) - self.cfg.n_tr - self.cfg.n_te]
-        test_split = random_split(dataset, splits)[1]
-
-        return processed, DataLoader(test_split, batch_size=self.batch_size, shuffle=False)
+        if data_loader:
+            return DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
+        return test_dataset
 
     def read_data(self):
         """

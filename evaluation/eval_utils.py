@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 from scipy.stats import gaussian_kde
+from torchdiffeq import odeint
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def load_model_from_manifest(save_dir: Union[str, Path], model_raw: torch.nn.Module):
     if isinstance(save_dir, str):
@@ -23,24 +29,80 @@ def load_model_from_manifest(save_dir: Union[str, Path], model_raw: torch.nn.Mod
 
     return model_raw
 
-def get_pred_seq(x0, x_act, n_steps, model, device, include_time=False):
-    pred_sequence = [x0.squeeze(0).detach()]
-    mse_per_step = []
+def get_pred_seq_with_comparision(test_loader, n_steps, model, device, save_path):
+    logger.info("Starting prediction and comparison...")
+    model.eval()
+    pred_seq = []
+    mse_per_timestep = torch.zeros(n_steps - 1, device=device)
+    num_batches = 0
 
-    x_curr = x0.clone().to(device)
-    for step in range(1, n_steps):
-        with torch.no_grad():
-            if(include_time):
-                x_next = model(x_t=x_curr, t=torch.tensor([step], device=device, dtype=torch.float32))
-            else:
-                x_next = model(x_curr)
-        pred_sequence.append(x_next.squeeze(0).detach())
-        gt = x_act[step].to(device)
-        mse = F.mse_loss(x_next.squeeze(0), gt)
-        mse_per_step.append(mse.item())
-        x_curr = x_next.detach()
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(test_loader):
+            logger.info(f"Processing batch {batch_idx + 1}...")
+            batch = batch.to(device)
+            x = batch.clone()
+            
+            batch_size = x.shape[0]
+            spatial_shape = x.shape[2:]
 
-    return pred_sequence, mse_per_step
+            preds = []
+
+            x_t = x[:, 0]
+            preds.append(x_t.cpu())
+
+            for t in range(1, n_steps):
+                x_t = sample(x0=x_t, model=model, device=device)
+                preds.append(x_t.cpu())
+
+                mse = F.mse_loss(x_t, x[:, t], reduction='mean')
+                mse_per_timestep[t - 1] += mse
+
+                logger.debug(f"Batch {batch_idx + 1}, timestep {t}: MSE = {mse.item():.6f}")
+
+            num_batches += 1
+            pred_seq.append(torch.stack(preds, dim=1))
+
+    pred_seq = torch.cat(pred_seq, dim=0)
+    mse_per_timestep /= num_batches
+
+    logger.info("Finished all batches.")
+    logger.info("Plotting MSE per timestep...")
+    plt.figure(figsize=(8, 4))
+    plt.plot(range(1, n_steps), mse_per_timestep.cpu().numpy(), marker='o')
+    plt.title('MSE vs Time Step')
+    plt.xlabel('Time Step')
+    plt.ylabel('MSE')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(save_path / 'evaluation_mse_per_step.png')
+    plt.close()
+    
+    result_path = save_path / 'results.pt'
+    torch.save({
+        'pred_seq': pred_seq, 
+        'mse_per_timestep': mse_per_timestep
+    }, result_path)
+
+    logger.info(f"Saved predictions and MSE to {result_path}")
+
+    return pred_seq, mse_per_timestep
+
+
+def sample(x0, model, device='cpu', return_path=False, rtol=1e-5, atol=1e-5):
+    # x0: samples at time t
+    # model: flow model trained on PDE
+    # n_eval: how many timesteps in [0, 1] to evaluate. Should be >= 2. 
+    # returns sample at time t+1
+
+    t = torch.linspace(0, 1, model.t_scaling, device=device)
+    
+    method = 'dopri5'
+    out = odeint(model, x0, t, method=method, rtol=rtol, atol=atol)
+
+    if return_path:
+        return out
+    else:
+        return out[-1]
 
 
 def plot_sequence(gt, pred, cfg, step_indices=None):

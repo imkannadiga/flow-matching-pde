@@ -40,7 +40,7 @@ class FNO(base_model.BaseModel):
                          in_channels=in_channels, out_channels=vis_channels)
         
         
-    def forward(self, u, t, **kwargs):
+    def forward(self, t, u, **kwargs):
         # u: (batch_size, channels, h, w)
         # t: either scalar or (batch_size,)
         

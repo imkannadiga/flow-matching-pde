@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+  - data: navier_stokes
+  - model: fno
+  - eval: simulation
+
+experiment_name: trial
+
+hydra:
+  run:
+    dir: evaluation_runs/${model.name}-${data.name}-${experiment_name}

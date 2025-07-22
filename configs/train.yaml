@@ -5,6 +5,10 @@ defaults:
   - trainer: debug
   - wandb: disabled
 
+experiment_name: trial
+
 hydra:
   run:
-    dir: runs/${model.name}-${data.name}-${now:%Y-%m-%d_%H-%M-%S}
+    dir: training_runs/${model.name}-${data.name}-${experiment_name}
+  sweep:
+    dir: training_runs/${model.name}-${data.name}-${experiment_name}

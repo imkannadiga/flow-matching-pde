@@ -1,0 +1,10 @@
+_target_ : evaluation.simulation_eval.SimulationEvaluator
+
+model: ${model}
+data: ${data}
+
+state_dict_path: training_runs/${model.name}-${data.name}-${experiment_name}/checkpoints
+device: cuda
+n_samples: 1000
+n_steps: 50
+save_path: ${hydra:run.dir}/results
