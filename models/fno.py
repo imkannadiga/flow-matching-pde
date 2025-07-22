@@ -37,7 +37,7 @@ class FNO(base_model.BaseModel):
 
         self.model = _FNO(n_modes=n_modes, 
                          hidden_channels=hidden_channels, projection_channels=proj_channels,
-                         in_channels=in_channels, out_channels=vis_channels)
+                         in_channels=in_channels, out_channels=vis_channels, **kwargs)
         
         
     def forward(self, t, u, **kwargs):

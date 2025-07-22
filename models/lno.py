@@ -38,7 +38,7 @@ class LFNO(base_model.BaseModel):
 
         self.model = _LNO(n_modes=n_modes,  
                          hidden_channels=hidden_channels, disco_kernel_shape=disco_kernel_shape,
-                         in_channels=in_channels, out_channels=vis_channels, default_in_shape=default_in_shape)
+                         in_channels=in_channels, out_channels=vis_channels, default_in_shape=default_in_shape, **kwargs)
         
         
     def forward(self, u, t, **kwargs):
