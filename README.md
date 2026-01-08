@@ -214,23 +214,3 @@ hidden_channels: 64     # Hidden channels
 proj_channels: 64       # Projection channels
 t_scaling: 1000         # Time scaling factor
 ```
-
-## License
-
-[Add your license information here]
-
-## Citation
-
-If you use this code in your research, please cite:
-```bibtex
-[Add citation information]
-```
-
-## Contributing
-
-[Add contributing guidelines if applicable]
-
-## Acknowledgments
-
-- Neural Operators library: [neuraloperator](https://github.com/neuraloperator/neuraloperator)
-- Hydra framework: [hydra](https://hydra.cc/)
