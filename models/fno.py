@@ -58,7 +58,7 @@ class FNO(base_model.BaseModel):
         t = t_allhot(t, u.shape)
         # Concatenate position as new channel(s)
         posn_emb = make_posn_embed(batch_size, dims).to(u.device)
-        u = torch.cat((u, posn_emb, t), dim=1).float() # todo fix precision
+        u = torch.cat((u, posn_emb, t), dim=1).float()
         
         out = self.model(u)
 

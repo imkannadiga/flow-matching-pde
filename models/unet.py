@@ -66,13 +66,26 @@ class UNet(base_model.BaseModel):
 
         self.out_conv = nn.Conv2d(base_channels, out_channels, 1)  # predict velocity field
 
-    def forward(self, u, t):
+    def forward(self, t, u):
+        """
+        Forward pass for U-Net model.
+        
+        Args:
+            t: Time tensor [B] or scalar
+            u: Input tensor [B, C, H, W]
+        """
         # Normalize time t to [0, 1] range
-        t = t / 50 # Hardcoded for 50 timesteps, adjust as needed 
-        # x_t shape: [B, 2, H, W], t shape: [B,1]
+        # Use t_scaling if available, otherwise default to 50
+        t_scaling = getattr(self, 't_scaling', 50)
+        t = t / t_scaling
+        # x_t shape: [B, C, H, W], t shape: [B] or scalar
         B, C, H, W = u.shape
+        if t.dim() == 0:
+            t = t.unsqueeze(0).expand(B)
+        elif t.numel() == 1:
+            t = t.expand(B)
         t_expanded = t.view(B, 1, 1, 1).expand(-1, 1, H, W)
-        x = torch.cat([u, t_expanded], dim=1)  # concat time as 2nd channel
+        x = torch.cat([u, t_expanded], dim=1)  # concat time as additional channel
 
         e1 = self.enc1(x)
         e2 = self.enc2(e1)

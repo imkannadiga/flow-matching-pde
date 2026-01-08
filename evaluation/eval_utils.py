@@ -105,6 +105,76 @@ def sample(x0, model, device='cpu', return_path=False, rtol=1e-5, atol=1e-5):
         return out[-1]
 
 
+def get_pred_seq(x0, gt_sequence, n_steps, model, device, include_time=False):
+    """
+    Generate a predicted sequence using the model starting from x0.
+    
+    Args:
+        x0: Initial condition tensor [1, C, H, W]
+        gt_sequence: Ground truth sequence tensor [n_steps, C, H, W]
+        n_steps: Number of steps to predict
+        model: Trained model
+        device: Device to run on
+        include_time: Whether the model requires time input (for flow matching models)
+    
+    Returns:
+        pred_sequence: List of predicted tensors
+        mse_per_step: MSE for each step compared to ground truth
+    """
+    model.eval()
+    pred_sequence = []
+    mse_per_step = []
+    
+    # Handle x0 shape - ensure it's [1, C, H, W]
+    if x0.dim() == 3:
+        x0 = x0.unsqueeze(0)
+    
+    current_x = x0.to(device)
+    pred_sequence.append(current_x.cpu().squeeze(0))
+    
+    with torch.no_grad():
+        for step in range(1, n_steps):
+            if include_time:
+                # For flow matching models, we need to provide time
+                # Use step index normalized to [0, 1]
+                t = torch.tensor([step / n_steps], device=device)
+                # All models now use consistent signature: forward(t, u)
+                # Try (t, u) first (consistent across all models)
+                try:
+                    pred = model(t, current_x)
+                except TypeError:
+                    # Fallback to (u, t) if needed for backward compatibility
+                    pred = model(current_x, t)
+            else:
+                # For non-flow-matching models, just use current_x
+                if current_x.dim() == 4:
+                    # Model expects dict input with "x" key or direct tensor
+                    try:
+                        pred = model(current_x)
+                    except:
+                        # Try as dict
+                        pred = model(**{"x": current_x})
+                else:
+                    pred = model(current_x)
+            
+            # Store prediction
+            pred_sequence.append(pred.cpu().squeeze(0) if pred.dim() > 3 else pred.cpu())
+            
+            # Calculate MSE if ground truth is available
+            if step < len(gt_sequence):
+                gt_step = gt_sequence[step].unsqueeze(0).to(device) if gt_sequence[step].dim() == 3 else gt_sequence[step].to(device)
+                mse = F.mse_loss(pred, gt_step).item()
+                mse_per_step.append(mse)
+                
+                # For autoregressive prediction, use prediction as next input
+                current_x = pred
+            else:
+                # No ground truth, just use prediction
+                current_x = pred
+    
+    return pred_sequence, mse_per_step
+
+
 def plot_sequence(gt, pred, cfg, step_indices=None):
     if step_indices is None:
         step_indices = [0, 10, 15, 30, 45, 49]

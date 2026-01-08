@@ -70,19 +70,41 @@ class BaseDataModule(abc.ABC):
 
         return train_loader, test_loader
 
-    def get_testing_data(self, n_samples, data_loader=True):
+    def get_testing_data(self, n_samples=None, data_loader=True):
         """
-        Returns a testing dataloader.
+        Returns testing data for evaluation.
+        
+        Args:
+            n_samples: Number of samples to extract. If None, uses n_te from config.
+            data_loader: Whether to return a DataLoader or Dataset.
+        
+        Returns:
+            If data_loader=True: (dataset, DataLoader)
+            If data_loader=False: dataset
         """
         raw = self.read_data()
         processed = self.preprocess(raw)
+        dataset = BaseSequentialDataset(processed)
         
-        # extract random n_samples from the processed dataset
-        indices = torch.randperm(processed.size(0))[:n_samples]
-        test_dataset = processed[indices]
+        # Determine number of test samples
+        if n_samples is None:
+            n_samples = self.cfg.n_te
+        
+        # Split dataset
+        torch.manual_seed(self.seed)
+        n_total = len(dataset)
+        n_tr = self.cfg.n_tr
+        n_te = min(n_samples, n_total - n_tr)
+        splits = [n_tr, n_te, n_total - n_tr - n_te]
+        _, test_dataset, _ = random_split(dataset, splits)
+        
+        # If n_samples is specified and less than available, take subset
+        if n_samples is not None and n_samples < len(test_dataset):
+            indices = torch.randperm(len(test_dataset))[:n_samples]
+            test_dataset = torch.utils.data.Subset(test_dataset, indices.tolist())
 
         if data_loader:
-            return DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
+            return test_dataset, DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
         return test_dataset
 
     def read_data(self):

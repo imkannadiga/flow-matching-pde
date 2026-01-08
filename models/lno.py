@@ -41,7 +41,14 @@ class LFNO(base_model.BaseModel):
                          in_channels=in_channels, out_channels=vis_channels, default_in_shape=default_in_shape, **kwargs)
         
         
-    def forward(self, u, t, **kwargs):
+    def forward(self, t, u, **kwargs):
+        """
+        Forward pass for LFNO model.
+        
+        Args:
+            t: Time tensor, either scalar or (batch_size,)
+            u: Input tensor (batch_size, channels, h, w)
+        """
         # u: (batch_size, channels, h, w)
         # t: either scalar or (batch_size,)
         
@@ -59,7 +66,7 @@ class LFNO(base_model.BaseModel):
         t = t_allhot(t, u.shape)
         # Concatenate position as new channel(s)
         posn_emb = make_posn_embed(batch_size, dims).to(u.device)
-        u = torch.cat((u, posn_emb, t), dim=1).float() # todo fix precision
+        u = torch.cat((u, posn_emb, t), dim=1).float()
         
         out = self.model(u)
 

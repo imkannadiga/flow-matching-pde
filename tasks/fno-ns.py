@@ -40,9 +40,12 @@ class FNONSTask(BaseTask):
         
         # Log training metrics to local save directory
         print(f"[INFO] Training metrics: {train_metrics}")
-
+        
+        # Save final metrics
+        metrics_path = Path(self.train_cfg.save_path) / "training_metrics.pt"
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(train_metrics, metrics_path)
+        print(f"[INFO] Training metrics saved to {metrics_path}")
         
         print(f"[INFO] Training completed for model: {self.model.__class__.__name__}")
-        
-        # TODO: log training metrics
         

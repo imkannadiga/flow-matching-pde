@@ -1,4 +1,6 @@
-# TODO
+"""
+Loss functions for training neural operators.
+"""
 
 class MSE:
     """

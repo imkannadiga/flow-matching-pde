@@ -1,21 +1,29 @@
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+from evaluation.ns_evaluator import NSEvaluator
 
 @hydra.main(config_path="configs", config_name="eval", version_base=None)
 def main(cfg: DictConfig):
-    # TODO
-    ## initialize dataset
+    """
+    Main evaluation entry point.
+    Initializes dataset, model, and evaluator, then runs evaluation.
+    """
+    # Initialize dataset
     data = instantiate(cfg.data)
-    ## initialize model
+    
+    # Initialize model
     model = instantiate(cfg.model)
-    ## initialize the evaluation class with model, data and state_dict path
-    eval_task = instantiate(cfg.eval)
-    ## run
-    eval_task.run()
+    
+    # Create evaluator with full config
+    # NSEvaluator handles model and data instantiation internally
+    evaluator = NSEvaluator(cfg=cfg)
+    
+    # Run evaluation
+    evaluator.run()
     
     return
-    
-    
+
+
 if __name__ == "__main__":
     main()

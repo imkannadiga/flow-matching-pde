@@ -1,2 +1,49 @@
 scripts/wandb/
 **/__pycache__/
+
+# Data files
+data/_data/**/*.npy
+data/_data/**/*.pt
+data/_data/**/*.mat
+data/_data/**/*.h5
+data/_data/**/*.hdf5
+!data/_data/.gitkeep
+
+# Training outputs
+training_runs/
+evaluation_runs/
+outputs/
+wandb/
+wandb-logs/
+
+# Checkpoints and model files
+*.pt
+*.pth
+*.pkl
+checkpoints/
+*.ckpt
+
+# Python cache
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
