@@ -1,5 +1,0 @@
-use_wandb: true
-project: runs
-entity: hathreyap-university-of-stuttgart
-mode: online  # or "offline"
-config_log_interval: 100

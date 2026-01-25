@@ -19,10 +19,10 @@ FILENAME = "fno_ns_Re20_N5000_T50.npy"
 FILE_PATH = DATA_DIR / FILENAME
 
 # Google Drive file ID (update this with the actual file ID if available)
-FILE_ID = "YOUR_GOOGLE_DRIVE_FILE_ID_HERE"
+FILE_ID = "https://drive.google.com/file/d/1rdaAAQqsz8vePMLd8iETgdk-35Twsc72"
 
 # Alternative: Direct URL (if the file is hosted elsewhere)
-DIRECT_URL = None  # e.g., "https://example.com/data/fno_ns_Re20_N5000_T50.npy"
+DIRECT_URL = "https://drive.google.com/drive/u/0/folders/1z-0V6NSl2STzrSA6QkzYWOGHSTgiOSYq"
 
 
 def print_success(message):
@@ -49,7 +49,7 @@ def download_from_google_drive(file_id, output_path):
         return False
     
     try:
-        url = f"https://drive.google.com/uc?id={file_id}"
+        url = f"{file_id}"
         print(f"Downloading from Google Drive: {url}")
         gdown.download(url, str(output_path), quiet=False)
         return output_path.exists()
