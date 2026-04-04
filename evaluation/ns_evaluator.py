@@ -1,6 +1,7 @@
 import os
 from omegaconf import DictConfig, OmegaConf
 import torch
+from tqdm import tqdm
 from matplotlib import pyplot as plt
 from hydra.utils import instantiate
 from evaluation.base import BaseEvaluator
@@ -127,7 +128,7 @@ class NSEvaluator(BaseEvaluator):
         include_time = getattr(self.cfg.eval, "include_time", False)
 
         with torch.no_grad():
-            for batch in self.loader_te:
+            for batch in tqdm(self.loader_te, desc="Eval (full dataset)", unit="batch"):
                 u = batch["x"].to(self.device)
                 if include_time:
                     tt = batch["t"].to(self.device)

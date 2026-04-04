@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate
 from training.model_channels import infer_model_shapes_from_data
@@ -48,7 +49,7 @@ def evaluate(cfg: DictConfig):
     # Full dataset evaluation
     real, gen = [], []
     with torch.no_grad():
-        for batch in loader_te:
+        for batch in tqdm(loader_te, desc="Eval (full dataset)", unit="batch"):
             batch["x"], batch["y"] = batch["x"].to(device), batch["y"].to(device)
             output = model(batch)
             gen.append(output)

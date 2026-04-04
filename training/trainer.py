@@ -5,6 +5,7 @@ import sys
 import warnings
 
 import torch
+from tqdm import tqdm
 from torch.cuda import amp
 from torch import nn
 import torch.distributed as dist
@@ -122,6 +123,12 @@ class Trainer:
     
         # Track starting epoch for checkpointing/resuming
         self.start_epoch = 0
+
+    def _progress_bar_enabled(self) -> bool:
+        """Use tqdm only on a single process (rank 0) under distributed training."""
+        if not self.use_distributed:
+            return True
+        return comm.get_local_rank() == 0
 
     def train(
         self,
@@ -320,7 +327,16 @@ class Trainer:
         num_batches = len(train_loader)
         self.optimizer.zero_grad(set_to_none=True)
 
-        for idx, sample in enumerate(train_loader):
+        batch_iter = train_loader
+        if self._progress_bar_enabled():
+            batch_iter = tqdm(
+                train_loader,
+                desc=f"Train epoch {epoch + 1}/{self.n_epochs}",
+                leave=True,
+                unit="batch",
+            )
+
+        for idx, sample in enumerate(batch_iter):
             loss = self._compute_training_loss(idx, sample, training_loss)
             loss.backward()
 
@@ -469,7 +485,15 @@ class Trainer:
 
         self.n_samples = 0
         with torch.no_grad():
-            for idx, sample in enumerate(data_loader):
+            batch_iter = data_loader
+            if self._progress_bar_enabled():
+                batch_iter = tqdm(
+                    data_loader,
+                    desc=f"Eval {log_prefix or 'val'} ({mode})",
+                    leave=False,
+                    unit="batch",
+                )
+            for idx, sample in enumerate(batch_iter):
                 return_output = False
                 if idx == len(data_loader) - 1:
                     return_output = True
