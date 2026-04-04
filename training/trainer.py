@@ -34,6 +34,14 @@ def _wandb_numeric(x: Any) -> float:
     return float(x)
 
 
+def _wandb_histogram_param(tensor: torch.Tensor):
+    """Build a W&B histogram from a parameter tensor (CPU, detached)."""
+    flat = tensor.detach().cpu().float().reshape(-1)
+    if flat.numel() == 0:
+        return None
+    return wandb.Histogram(flat.numpy())
+
+
 class Trainer:
     """
     A general Trainer class to train models on given datasets. 
@@ -262,6 +270,9 @@ class Trainer:
             if self.save_every is not None:
                 if epoch % self.save_every == 0:
                     self.checkpoint(save_dir)
+
+            if self.wandb_log:
+                self._wandb_log_model_parameters(epoch + 1)
 
         return epoch_metrics
 
@@ -748,6 +759,25 @@ class Trainer:
                 step=epoch + 1,
                 commit=True,
             )
+
+    def _wandb_log_model_parameters(self, step: int) -> None:
+        """Log W&B histograms for every model parameter once per epoch (rank 0 only).
+
+        Called from ``train()`` at the end of each epoch, not from the evaluation loop.
+        """
+        if not self.wandb_log:
+            return
+        if comm.get_local_rank() != 0:
+            return
+        model = self.model.module if hasattr(self.model, "module") else self.model
+        payload = {}
+        with torch.no_grad():
+            for name, p in model.named_parameters():
+                hist = _wandb_histogram_param(p)
+                if hist is not None:
+                    payload[f"params/{name.replace('.', '/')}"] = hist
+        if payload:
+            wandb.log(payload, step=step, commit=True)
 
     def resume_state_from_dir(self, save_dir):
         """
