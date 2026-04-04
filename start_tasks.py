@@ -6,7 +6,7 @@ from omegaconf import DictConfig
 from hydra.utils import instantiate
 from evaluation.ns_evaluator import NSEvaluator
 from omegaconf import OmegaConf
-from util.reproducibility import wandb_run_name
+from util.reproducibility import wandb_group, wandb_run_name
 
 @hydra.main(config_path="configs", config_name="config", version_base=None)
 def main(cfg: DictConfig):
@@ -14,13 +14,17 @@ def main(cfg: DictConfig):
     if cfg.task.do_train:
         if cfg.get("wandb", {}).get("use_wandb", False):
             import wandb
-            wandb.init(
+            wb_kwargs = dict(
                 project=cfg.wandb.project,
                 entity=cfg.wandb.entity,
                 name=wandb_run_name(cfg),
                 config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
                 mode=cfg.wandb.mode,
             )
+            _grp = wandb_group(cfg)
+            if _grp is not None:
+                wb_kwargs["group"] = _grp
+            wandb.init(**wb_kwargs)
 
         # Instantiate and run the task
         task = instantiate(cfg.task)

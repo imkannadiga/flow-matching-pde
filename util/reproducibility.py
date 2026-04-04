@@ -53,6 +53,32 @@ def wandb_run_name(cfg: DictConfig) -> str:
     return "-".join(parts)
 
 
+def wandb_group(cfg: DictConfig) -> Union[str, None]:
+    """
+    Optional W&B ``group`` so multirun jobs appear under one sweep in the UI.
+
+    If ``cfg.wandb.group`` is set (non-null), returns that string. Otherwise, when
+    Hydra multirun is active (``hydra.job.num`` is set), returns the resolved parent
+    of ``runtime.output_dir`` (the directory shared by all jobs in that multirun).
+    Single runs return ``None`` (no group).
+    """
+    from hydra.core.hydra_config import HydraConfig
+
+    g = OmegaConf.select(cfg, "wandb.group")
+    if g is not None:
+        s = str(g).strip()
+        if s and s.lower() not in ("null", "~", "none"):
+            return s
+
+    if not HydraConfig.initialized():
+        return None
+    hc = HydraConfig.get()
+    jn = OmegaConf.select(hc, "job.num", default=None)
+    if jn is None:
+        return None
+    return str(Path(hc.runtime.output_dir).resolve().parent)
+
+
 def save_config_hash(cfg: DictConfig, run_dir: Union[str, Path]) -> str:
     """
     Write config_hash.txt containing sha256 of the resolved config YAML.
