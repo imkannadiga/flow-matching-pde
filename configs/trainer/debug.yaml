@@ -23,15 +23,9 @@ scheduler:
 
   step_size: 25
 
-pre_train_processor:
-  _target_: training.data_processors.FlowMatchingDataProcessor
-
-  kernel_length: 0.001
-  kernel_variance: 1.0
-  vp: False
-  sigma_min: 1e-4
-  device: "cuda"
+pre_train_processor: ${paradigm.pre_train_processor}
 
 loss:
   _target_: torch.nn.MSELoss
+  reduction: sum
 

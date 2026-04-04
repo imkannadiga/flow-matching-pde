@@ -1,0 +1,9 @@
+# Level 2: coords + FiLM from ``batch["params"]`` (shape [B, param_dim]).
+# Requires per-sample ``params`` (e.g. PDEBench loader or ``data.default_params`` on NS).
+append_coords: true
+film_params: true
+domain_bounds:
+  - [0.0, 1.0]
+  - [0.0, 1.0]
+param_keys: [Re, nu]
+param_dim: 2

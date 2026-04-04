@@ -1,7 +1,7 @@
-_target_: models.fno.FNO
+_target_: models.amfno.AMFNO
 
-name: fno
-modes: 64
+name: amfno
+modes: 32
 vis_channels: 1
 hidden_channels: 64
 proj_channels: 64
@@ -9,5 +9,6 @@ x_dim: 2
 t_scaling: 1
 coord_channels: 0
 film_param_dim: ${conditioning.param_dim}
-# Avoids dense complex einsum (cublasCgemmStridedBatched) seen on some CUDA/PyTorch stacks.
+param_dim: 2
+context_dim: 8
 separable: true

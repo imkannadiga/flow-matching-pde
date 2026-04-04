@@ -76,7 +76,8 @@ flow-matching-pde/
 │   ├── ns_evaluator.py # Navier-Stokes evaluator
 │   └── eval_utils.py   # Evaluation helpers
 ├── train.py            # Training entry point
-├── eval.py             # Evaluation entry point
+├── evaluate.py         # Rollout benchmark (Hydra ``evaluate`` config)
+├── eval.py             # Legacy NSEvaluator entry point
 └── start_tasks.py      # Task runner entry point
 ```
 
@@ -84,14 +85,45 @@ flow-matching-pde/
 
 ### Training
 
-#### Using the standard trainer (FNO/LNO):
+#### Using `train.py` (Hydra)
+
+Set `PROJECT_ROOT` to the repository root so data paths resolve. Each run writes `config_hash.txt` and `results.json` under the Hydra output directory, and uses trajectory-level train/test splits (no leakage across trajectories).
+
 ```bash
+export PROJECT_ROOT=$(pwd)
 python train.py \
     model=fno \
     data=navier_stokes \
     trainer=run \
     wandb=disabled
 ```
+
+Optional: `torch-harmonics` is required for **LFNO** (`model=lno`) with the current `neuralop` DISCO stack; FNO and U-Net do not need it.
+
+#### Paradigms (FM / AR / diffusion)
+
+Training uses ``configs/paradigm/{fm,ar,diffusion}.yaml`` to set the processor (rectified **bridge** flow, autoregressive one-step, or VP diffusion with ε-prediction). Switch with e.g. ``paradigm=ar``.
+
+Phase 1 multirun (paradigm × seed):
+
+```bash
+python train.py --config-path configs --config-name experiment/phase1 --multirun
+```
+
+#### Conditioning (levels 0 / 1 / 2)
+
+Training defaults include ``conditioning: level0`` (see ``configs/conditioning/``). Level 1 concatenates a normalized spatial grid to ``u`` before the model; level 2 also threads ``batch["params"]`` into the forward pass for FiLM. For level 1 or 2, set ``model.coord_channels=2`` for FNO, LNO, U-Net, ViT, and AM-FNO so channel counts match the processor. For level 2 on NumPy Navier-Stokes without per-trajectory metadata, use ``data.default_param_vector`` (values in the same order as ``conditioning.param_keys``, default ``[Re, nu]``).
+
+Phase 2 (FM + level 2 + synthetic constant params) and phase 3 (architecture × seed sweep under full conditioning):
+
+```bash
+python train.py --config-path configs --config-name experiment/phase2 --multirun
+python train.py --config-path configs --config-name experiment/phase3 --multirun
+```
+
+Compose / instantiate smoke (no data I/O beyond config): ``python scripts/dry_compose_sprint3.py``. PDEBench-style HDF5 loads are configured via ``configs/data/pdebench_ns.yaml`` and ``data/pdebench_ns.py``.
+
+Optional hardware presets: ``defaults`` entry ``hardware=a100`` or ``hardware=4090`` (overrides ``data.batch_size``; see ``configs/hardware/``).
 
 #### Using the flow matching task:
 ```bash
@@ -104,13 +136,29 @@ python start_tasks.py \
 
 ### Evaluation
 
+**Rollout benchmark (JSONL row + metrics):** ``evaluate.py`` runs ``RolloutEvaluator`` (trajectory rollouts, timing, spectrum/density). Point it at a training checkpoint directory (with ``model_state_dict.pt`` or ``manifest.pt``):
+
+```bash
+export PROJECT_ROOT=$(pwd)
+export CHECKPOINT_DIR=/path/to/your/hydra/run/checkpoints
+python evaluate.py paradigm=fm evaluate.sampler_type=euler
+```
+
+Each run appends a line to ``results.jsonl`` in the Hydra output directory. To merge JSONL files into ``results.csv``, use ``evaluation.results_logger.export_csv`` from Python (see module docstring).
+
+With the current model inputs, the **diffusion** paradigm’s DDIM path samples a next state from Gaussian noise only (it does not condition on ``u_t``); FM (bridge) and AR samplers use the current field as in training.
+
+**Legacy visualization / single-step checks:** ``eval.py`` with ``NSEvaluator`` and ``configs/eval.yaml``:
+
 ```bash
 python eval.py \
     model=fno \
     data=navier_stokes \
-    eval=simulation \
-    eval.state_dict_path=training_runs/fno-navier_stokes-trial/checkpoints
+    eval=base \
+    train.save_path=training_runs/fno-navier_stokes-trial/checkpoints
 ```
+
+`eval.py` loads weights from `eval.state_dict_path` when set, otherwise `train.save_path`.
 
 ### Configuration
 
@@ -130,18 +178,28 @@ python train.py model=fno model.modes=32 train.epochs=100 train.lr=0.001
 
 ### FNO (Fourier Neural Operator)
 - **File**: `models/fno.py`
-- **Forward signature**: `forward(t, u)`
-- **Key parameters**: `modes`, `hidden_channels`, `proj_channels`
+- **Forward signature**: `forward(t, u, coords=None, params=None)`
+- **Key parameters**: `modes`, `hidden_channels`, `proj_channels`, `t_scaling` (default `1`)
 
 ### LNO (Local Neural Operator)
 - **File**: `models/lno.py`
-- **Forward signature**: `forward(t, u)`
+- **Forward signature**: `forward(t, u, coords=None, params=None)`
 - **Key parameters**: `modes`, `hidden_channels`, `disco_kernel_shape`
 
 ### U-Net
 - **File**: `models/unet.py`
-- **Forward signature**: `forward(t, u)`
-- **Key parameters**: `in_channels`, `out_channels`, `base_channels`
+- **Forward signature**: `forward(t, u, coords=None, params=None)`
+- **Key parameters**: `in_channels`, `out_channels`, `base_channels`, `coord_channels` (optional extra field channels when coords are pre-concatenated into `u`), `film_param_dim` for FiLM blocks
+
+### Field ViT
+- **File**: `models/vit.py` (`FieldViT`)
+- **Forward signature**: `forward(t, u, coords=None, params=None)` (``coords`` unused; coords should be concatenated into ``u`` when ``coord_channels>0``)
+- **Key parameters**: `patch_size`, `embed_dim`, `depth`, `num_heads`, `coord_channels`, `film_param_dim`
+
+### AM-FNO
+- **File**: `models/amfno.py`
+- **Forward signature**: `forward(t, u, coords=None, params=None)`
+- **Key parameters**: `param_dim`, `context_dim` (parameter MLP → tiled context maps before the spectral trunk), `coord_channels`, `film_param_dim`
 
 ## Data
 
@@ -153,9 +211,12 @@ The Navier-Stokes dataset consists of:
   - Re = 20 (Reynolds number)
 
 Data is automatically downloaded and preprocessed. The `BaseDataModule` handles:
-- Loading and preprocessing
-- Train/test splits
+- Loading and preprocessing to **(N, T, C, H, W)**
+- **Trajectory-level** train/test splits (pairs are drawn only within each split’s trajectories)
+- Optional multi-file load when `filename` is omitted (glob of `*.npy` / `*.pt` in `data_dir`)
 - DataLoader creation
+
+`NSDataModule.domain_bounds` documents the physical domain (default unit square `(0,1)^2`).
 
 ## Evaluation Metrics
 

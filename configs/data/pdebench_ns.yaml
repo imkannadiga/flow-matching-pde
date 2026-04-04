@@ -1,0 +1,9 @@
+_target_: data.pdebench_ns.PDEBenchNSDataModule
+
+name: pdebench_ns
+data_dir: ${oc.env:PROJECT_ROOT}/data/_data/pdebench_ns/
+filename: null
+batch_size: 32
+n_tr: 8
+n_te: 2
+h5_dataset_key: tensor

@@ -1,128 +1,199 @@
-import os
 import abc
-import torch
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from torch.utils.data import Dataset, DataLoader, random_split
+import torch
 from omegaconf import DictConfig
+from torch.utils.data import DataLoader, Dataset
+
+
+def _train_test_trajectory_indices(
+    n_trajectories: int, n_tr: int, n_te: int, seed: int
+) -> Tuple[List[int], List[int]]:
+    """Shuffle trajectory indices and split into disjoint train / test index lists."""
+    n_tr = min(n_tr, n_trajectories)
+    n_te = min(n_te, max(0, n_trajectories - n_tr))
+    g = torch.Generator()
+    g.manual_seed(seed)
+    perm = torch.randperm(n_trajectories, generator=g).tolist()
+    train_traj = perm[:n_tr]
+    test_traj = perm[n_tr : n_tr + n_te]
+    return train_traj, test_traj
 
 
 class BaseSequentialDataset(Dataset):
     """
-    Dataset that stores preprocessed (X, Y) time-step pairs.
+    Dataset of (x_t, x_{t+1}) pairs built only from the given trajectory indices.
+
+    ``data_tensor`` has shape **(N, T, C, H, W)** where N is the number of trajectories.
     """
-    def __init__(self, data_tensor: torch.Tensor):
-        # data_tensor: [N, T, C, H, W]
-        self.X, self.Y = self.create_sequential_pairs(data_tensor)
+
+    def __init__(
+        self,
+        data_tensor: torch.Tensor,
+        traj_indices: List[int],
+        trajectory_metadata: Optional[Dict[int, Any]] = None,
+        constant_params: Optional[torch.Tensor] = None,
+    ):
+        self.X, self.Y, self.traj_ids = self._create_pairs(data_tensor, traj_indices)
+        self.trajectory_metadata = trajectory_metadata
+        self.constant_params = constant_params
+
+    @staticmethod
+    def _create_pairs(
+        data: torch.Tensor, traj_indices: List[int]
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[int]]:
+        X_list, Y_list, ids = [], [], []
+        for tid in traj_indices:
+            traj = data[tid]
+            if traj.shape[0] < 2:
+                continue
+            X_list.append(traj[:-1])
+            Y_list.append(traj[1:])
+            tp = traj.shape[0] - 1
+            ids.extend([tid] * tp)
+        if not X_list:
+            raise ValueError(
+                "Trajectory split produced no (t, t+1) pairs; ensure T>=2 per trajectory."
+            )
+        X = torch.cat(X_list, dim=0)
+        Y = torch.cat(Y_list, dim=0)
+        return X, Y, ids
 
     def __len__(self):
         return self.X.shape[0]
 
     def __getitem__(self, idx):
-        return {"x":self.X[idx], "y":self.Y[idx]}
-
-    @staticmethod
-    def create_sequential_pairs(data):
-        """
-        Converts [N, T, C, H, W] → X, Y pairs.
-        X = data at t, Y = data at t+1
-        """
-        N, T, C, H, W = data.shape
-        X = data[:, :-1]
-        Y = data[:, 1:]
-
-        X = X.reshape(-1, C, H, W)
-        Y = Y.reshape(-1, C, H, W)
-
-        return X, Y
+        out: Dict[str, Any] = {"x": self.X[idx], "y": self.Y[idx]}
+        if self.constant_params is not None:
+            out["params"] = self.constant_params.clone()
+        if self.trajectory_metadata is not None:
+            tid = self.traj_ids[idx]
+            if tid in self.trajectory_metadata:
+                out["metadata"] = self.trajectory_metadata[tid]
+        return out
 
 
 class BaseDataModule(abc.ABC):
-    def __init__(self, name: str, data_dir: str, filename: str, batch_size: int, n_tr:int, n_te:int, **kwargs):
+    def __init__(
+        self,
+        name: str,
+        data_dir: str,
+        filename: Optional[str],
+        batch_size: int,
+        n_tr: int,
+        n_te: int,
+        seed: int = 42,
+        trajectory_metadata: Optional[Dict[int, Any]] = None,
+        constant_params: Optional[torch.Tensor] = None,
+        **kwargs,
+    ):
         self.name = name
-        self.cfg = DictConfig({
-            'root_dir': data_dir,
-            'filename': filename,
-            'n_tr': n_tr,
-            'n_te': n_te
-        })
         self.batch_size = batch_size
-        self.seed = 42
-        
+        self.seed = seed
+        self.trajectory_metadata = trajectory_metadata
+        self.constant_params = constant_params
+        self.cfg = DictConfig(
+            {
+                "root_dir": data_dir,
+                "filename": filename,
+                "n_tr": n_tr,
+                "n_te": n_te,
+            }
+        )
+
     def get_dataloaders(self):
-        """
-        Loads, processes, splits the dataset into train/test and returns dataloaders.
-        """
+        """Load data, split trajectories (not flattened pairs), return train/test loaders."""
         raw = self.read_data()
         processed = self.preprocess(raw)
-        dataset = BaseSequentialDataset(processed)
-
-        # Perform splits
-        torch.manual_seed(self.seed)
-        n_total = len(dataset)
-        n_tr = self.cfg.n_tr
-        n_te = self.cfg.n_te
-        splits = [n_tr, n_te, n_total - n_tr - n_te]
-        data_tr, data_te, _ = random_split(dataset, splits)
-
-        # Dataloaders
+        if processed.dim() != 5:
+            raise ValueError(
+                f"Expected preprocess output of shape (N, T, C, H, W); got {tuple(processed.shape)}"
+            )
+        n_traj = processed.shape[0]
+        train_traj, test_traj = _train_test_trajectory_indices(
+            n_traj, int(self.cfg.n_tr), int(self.cfg.n_te), self.seed
+        )
+        data_tr = BaseSequentialDataset(
+            processed,
+            train_traj,
+            self.trajectory_metadata,
+            constant_params=self.constant_params,
+        )
+        data_te = BaseSequentialDataset(
+            processed,
+            test_traj,
+            self.trajectory_metadata,
+            constant_params=self.constant_params,
+        )
         train_loader = DataLoader(data_tr, batch_size=self.batch_size, shuffle=True)
         test_loader = DataLoader(data_te, batch_size=self.batch_size, shuffle=False)
-
         return train_loader, test_loader
 
     def get_testing_data(self, n_samples=None, data_loader=True):
         """
-        Returns testing data for evaluation.
-        
-        Args:
-            n_samples: Number of samples to extract. If None, uses n_te from config.
-            data_loader: Whether to return a DataLoader or Dataset.
-        
-        Returns:
-            If data_loader=True: (dataset, DataLoader)
-            If data_loader=False: dataset
+        Test split uses the **same** trajectory-level shuffle as ``get_dataloaders`` (same seed).
+
+        ``n_samples`` caps the number of **pair** samples when using a Subset (optional).
         """
         raw = self.read_data()
         processed = self.preprocess(raw)
-        dataset = BaseSequentialDataset(processed)
-        
-        # Determine number of test samples
-        if n_samples is None:
-            n_samples = self.cfg.n_te
-        
-        # Split dataset
-        torch.manual_seed(self.seed)
-        n_total = len(dataset)
-        n_tr = self.cfg.n_tr
-        n_te = min(n_samples, n_total - n_tr)
-        splits = [n_tr, n_te, n_total - n_tr - n_te]
-        _, test_dataset, _ = random_split(dataset, splits)
-        
-        # If n_samples is specified and less than available, take subset
+        n_traj = processed.shape[0]
+        _, test_traj = _train_test_trajectory_indices(
+            n_traj, int(self.cfg.n_tr), int(self.cfg.n_te), self.seed
+        )
+        test_dataset = BaseSequentialDataset(
+            processed,
+            test_traj,
+            self.trajectory_metadata,
+            constant_params=self.constant_params,
+        )
+
         if n_samples is not None and n_samples < len(test_dataset):
-            indices = torch.randperm(len(test_dataset))[:n_samples]
-            test_dataset = torch.utils.data.Subset(test_dataset, indices.tolist())
+            g = torch.Generator()
+            g.manual_seed(self.seed + 1)
+            indices = torch.randperm(len(test_dataset), generator=g)[:n_samples].tolist()
+            test_dataset = torch.utils.data.Subset(test_dataset, indices)
 
         if data_loader:
-            return test_dataset, DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
+            return test_dataset, DataLoader(
+                test_dataset, batch_size=self.batch_size, shuffle=False
+            )
         return test_dataset
 
-    def read_data(self):
-        """
-        Reads raw data file. Override for dataset-specific loading logic.
-        """
-        file_path = os.path.join(self.cfg.root_dir, self.cfg.filename)
-        if file_path.endswith(".npy"):
-            data = torch.from_numpy(np.load(file_path, allow_pickle=True)).float()
-        elif file_path.endswith(".pt"):
-            data = torch.load(file_path)
+    def read_data(self) -> torch.Tensor:
+        """Load raw tensor(s). Multiple ``*.npy`` / ``*.pt`` files are concatenated along the last axis (NS layout)."""
+        root = Path(self.cfg.root_dir)
+        filename = getattr(self.cfg, "filename", None)
+        if filename:
+            paths = [root / filename]
         else:
-            raise ValueError(f"Unsupported file format: {file_path}")
-        return data
+            paths = sorted(root.glob("*.npy")) + sorted(root.glob("*.pt"))
+        if not paths:
+            raise ValueError(f"No data files found under {root}")
+
+        if len(paths) == 1:
+            return self._load_tensor_from_path(paths[0])
+
+        chunks = [self._load_tensor_from_path(p) for p in paths]
+        # Navier-Stokes numpy layout is [T, H, W, N]; concatenate trajectories on last dim.
+        return torch.cat(chunks, dim=-1)
+
+    def _load_tensor_from_path(self, path: Path) -> torch.Tensor:
+        path = Path(path)
+        fp = path.as_posix()
+        if fp.endswith(".npy"):
+            arr = np.load(fp, allow_pickle=True)
+            return torch.from_numpy(np.asarray(arr)).float()
+        if fp.endswith(".pt"):
+            t = torch.load(fp, weights_only=False)
+            if not torch.is_tensor(t):
+                t = torch.from_numpy(np.asarray(t)).float()
+            return t.float()
+        raise ValueError(f"Unsupported file format: {fp}")
 
     @abc.abstractmethod
     def preprocess(self, data: torch.Tensor) -> torch.Tensor:
-        """
-        Override to apply dataset-specific transformations. Should return shape [N, T, C, H, W].
-        """
+        """Return shape [N, T, C, H, W]."""
         pass

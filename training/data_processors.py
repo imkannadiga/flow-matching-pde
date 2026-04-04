@@ -1,14 +1,9 @@
 from abc import ABCMeta, abstractmethod
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
-from neuralop.training.patching import MultigridPatching2D
-import numpy as np
 
-import torch
-from neuralop.training.patching import MultigridPatching2D
-
-from util.gaussian_process import GPPrior
-from util.util import make_grid, reshape_for_batchwise
+from data.coords import make_coord_grid
 
 
 class DataProcessor(torch.nn.Module, metaclass=ABCMeta):
@@ -70,7 +65,12 @@ class DefaultDataProcessor(DataProcessor):
     """
     def __init__(
         self,
-        device
+        device,
+        append_coords: bool = False,
+        domain_bounds: Optional[Sequence[Sequence[float]]] = None,
+        film_params: bool = False,
+        param_keys: Optional[Sequence[str]] = None,
+        coord_normalize: str = "neg1_1",
     ):
         """
         Parameters
@@ -79,10 +79,28 @@ class DefaultDataProcessor(DataProcessor):
             normalizer (e.g. StandardScaler) for the input samples
         out_normalizer : Transform, optional, default is None
             normalizer (e.g. StandardScaler) for the target and predicted samples
+        append_coords : bool
+            If True, concatenate ``make_coord_grid`` channels to ``u`` in ``sample["x"]``.
+        domain_bounds : sequence of (min, max) per spatial axis
+        film_params : bool
+            If True, pass ``sample["params"]`` through to ``sample["x"]["params"]`` for FiLM.
+        param_keys : optional names to build ``params`` vectors from ``sample["metadata"]`` dicts
+        coord_normalize : passed to ``make_coord_grid``
         """
         super().__init__()
-        self.device=device
+        self.device = device
         self.model = None
+        self.append_coords = bool(append_coords)
+        self.film_params = bool(film_params)
+        self.param_keys: List[str] = list(param_keys or [])
+        self.coord_normalize = coord_normalize
+        if domain_bounds is not None:
+            self.domain_bounds: List[Tuple[float, float]] = [
+                (float(a), float(b)) for a, b in domain_bounds
+            ]
+        else:
+            self.domain_bounds = [(0.0, 1.0), (0.0, 1.0)]
+        self._coord_cache: Optional[Tuple[Tuple[int, int], torch.Tensor]] = None
 
     def to(self, device):
         self.device = device
@@ -110,11 +128,73 @@ class DefaultDataProcessor(DataProcessor):
         """
         x = data_dict["x"].to(self.device)
         y = data_dict["y"].to(self.device)
-        
+
         data_dict["x"] = x
         data_dict["y"] = y
 
+        if "params" in data_dict and torch.is_tensor(data_dict["params"]):
+            data_dict["params"] = data_dict["params"].to(self.device)
+
+        if (
+            self.param_keys
+            and "metadata" in data_dict
+            and "params" not in data_dict
+        ):
+            meta = data_dict["metadata"]
+            if torch.is_tensor(meta):
+                raise ValueError("metadata must be a dict or list of dicts for param_keys")
+            if isinstance(meta, dict):
+                vec = torch.tensor(
+                    [float(meta[k]) for k in self.param_keys],
+                    device=self.device,
+                    dtype=x.dtype,
+                )
+                if x.dim() == 4:
+                    vec = vec.unsqueeze(0).expand(x.shape[0], -1)
+                data_dict["params"] = vec
+            elif isinstance(meta, list):
+                rows = []
+                for m in meta:
+                    rows.append([float(m[k]) for k in self.param_keys])
+                data_dict["params"] = torch.tensor(
+                    rows, device=self.device, dtype=x.dtype
+                )
+
         return data_dict
+
+    def _batched_coord_grid(
+        self, batch_size: int, h: int, w: int, device: torch.device, dtype: torch.dtype
+    ) -> torch.Tensor:
+        key = (h, w)
+        if self._coord_cache is None or self._coord_cache[0] != key:
+            g = make_coord_grid(
+                self.domain_bounds,
+                (h, w),
+                normalize=self.coord_normalize,
+                device=device,
+                dtype=dtype,
+            )
+            self._coord_cache = (key, g)
+        g = self._coord_cache[1]
+        return g.unsqueeze(0).expand(batch_size, -1, -1, -1)
+
+    def apply_model_conditioning(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        """After a paradigm builds ``sample["x"]`` with a ``u`` tensor, concat coords / params."""
+        if not isinstance(sample.get("x"), dict) or "u" not in sample["x"]:
+            return sample
+        u = sample["x"]["u"]
+        if u.dim() != 4:
+            return sample
+        b, _, h, w = u.shape
+        if self.append_coords:
+            coords = self._batched_coord_grid(b, h, w, u.device, u.dtype)
+            sample["x"]["u"] = torch.cat([u, coords], dim=1)
+        if self.film_params and "params" in sample:
+            p = sample["params"]
+            if not torch.is_tensor(p):
+                raise TypeError("film_params requires sample['params'] to be a tensor")
+            sample["x"]["params"] = p
+        return sample
 
     def postprocess(self, output, data_dict):
         """postprocess model outputs and data_dict
@@ -141,112 +221,3 @@ class DefaultDataProcessor(DataProcessor):
     
     def forward(self, x):
         return self.preprocess(x)
-
-class FlowMatchingDataProcessor(DefaultDataProcessor):
-    """
-    A data processor for flow matching tasks.
-    
-    This class provides the functionality to convert raw data -> {"x":x, "y":y, "t":t}
-    into a format suitable for flow matching tasks -> {"x":(x,t), "y":y}.
-    """
-    
-    def __init__(self, kernel_length, kernel_variance, vp, sigma_min, device):
-        
-        super().__init__(device)
-        
-        self.gp = GPPrior(lengthscale=kernel_length, var=kernel_variance, device=device)
-        self.device = device
-        self.vp = vp
-        self.sigma_min = sigma_min
-        if self.vp:
-            self.alpha, self.dalpha = self.construct_alpha()
-
-    def construct_alpha(self):
-        def alpha(t):
-            return torch.cos((t + 0.08)/2.16 * np.pi).to(self.device)
-        def dalpha(t):
-            return -np.pi/2.16 * torch.sin((t + 0.08)/2.16 * np.pi).to(self.device)
-        return alpha, dalpha
-    
-    def simulate(self, t, x_data):
-        # t: [batch_size,]
-        # x_data: [batch_size, n_channels, *dims]
-        # samples from p_t(x | x_data)
-
-        batch_size = x_data.shape[0]
-        n_channels = x_data.shape[1]
-        dims = x_data.shape[2:]
-        n_dims = len(dims)
-        
-        # Sample from prior GP
-        query_points = make_grid(dims)
-        
-        noise = self.gp.sample(query_points, dims, n_samples=batch_size, n_channels=n_channels)
-
-        # Construct mean/variance parameters
-        t = reshape_for_batchwise(t, 1 + n_dims)
-        
-        if self.vp:
-            mu = self.alpha(1-t) * x_data
-            sigma = torch.sqrt((1 - self.alpha(1-t)**2))
-        else:
-            mu = t * x_data
-            sigma = 1. - (1. - self.sigma_min) * t
-
-        samples = mu + sigma * noise
-
-        assert samples.shape == x_data.shape
-        return samples
-    
-    def get_conditional_fields(self, t, x_data, x_noisy):
-        # computes v_t(x_noisy | x_data)
-        # x_data, x_noisy: (batch_size, n_channels, *dims)
-
-        batch_size = x_data.shape[0]
-        n_channels = x_data.shape[1]
-        dims = x_data.shape[2:]
-        n_dims = len(dims)
-
-        t = reshape_for_batchwise(t, 1 + n_dims)
-        if self.vp:
-            conditional_fields = (self.dalpha(1-t)/(1 - self.alpha(1-t)**2)) * (self.alpha(1-t)*x_noisy - x_data)
-        else:
-            c = 1. - (1. - self.sigma_min) * t
-            conditional_fields = ( x_data - (1. - self.sigma_min) * x_noisy ) / c
-
-        return conditional_fields
-
-    def preprocess(self, sample):
-        """
-        Preprocess the sample for flow matching tasks.
-        
-        Samples a random time from [0,1) 
-        
-        Args:
-            sample (dict): The input sample containing data to be processed.
-        
-        Returns:
-            dict: The preprocessed sample.
-        """
-        
-        sample = super().preprocess(sample)
-        
-        batch_size = sample["x"].shape[0]
-        
-        # Sample a random time t from [0, 1)
-        t = torch.rand(batch_size, device=self.device)
-        
-        x_noisy = self.simulate(t=t, x_data=sample["x"])
-        
-        # Get conditional vector fields
-        target = self.get_conditional_fields(t, sample["x"], x_noisy)
-
-        processed_sample = {
-            "x":{
-                "u": x_noisy,
-                "t":t
-            },
-            "y": target
-        }
-        
-        return processed_sample

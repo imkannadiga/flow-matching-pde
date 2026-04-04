@@ -20,4 +20,5 @@ class MSE:
         Returns:
             torch.Tensor: Computed MSE loss.
         """
-        return ((predictions - targets) ** 2).mean()
+        # Sum over all elements so Trainer normalization (divide by n_samples) matches mean loss.
+        return ((predictions - targets) ** 2).sum()

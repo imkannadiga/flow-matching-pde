@@ -1,11 +1,14 @@
 defaults:
   - _self_
+  - conditioning: level0
+  - paradigm: fm
   - data: navier_stokes
   - model: fno
   - trainer: debug
   - wandb: disabled
 
 experiment_name: trial
+seed: 42
 
 hydra:
   run:

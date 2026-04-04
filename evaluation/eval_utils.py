@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 from scipy.stats import gaussian_kde
-from torchdiffeq import odeint
-
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -93,6 +91,7 @@ def sample(x0, model, device='cpu', return_path=False, rtol=1e-5, atol=1e-5):
     # model: flow model trained on PDE
     # n_eval: how many timesteps in [0, 1] to evaluate. Should be >= 2. 
     # returns sample at time t+1
+    from torchdiffeq import odeint
 
     t = torch.linspace(0, 1, model.t_scaling, device=device)
     

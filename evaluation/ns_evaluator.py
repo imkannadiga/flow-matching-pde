@@ -123,13 +123,20 @@ class NSEvaluator(BaseEvaluator):
 
         with torch.no_grad():
             for batch in self.loader_te:
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                u = batch["x"].to(self.device)
                 if include_time:
-                    output = self.model(x_t=batch["x"], t=batch["t"])
+                    tt = batch["t"].to(self.device)
+                    if tt.dim() == 0:
+                        tt = tt.unsqueeze(0).expand(u.shape[0])
+                    elif tt.dim() == 1 and tt.shape[0] == 1 and u.shape[0] > 1:
+                        tt = tt.expand(u.shape[0])
+                    output = self.model(t=tt, u=u)
                 else:
-                    output = self.model(batch["x"])
+                    bsz = u.shape[0]
+                    t0 = torch.zeros(bsz, device=self.device, dtype=u.dtype)
+                    output = self.model(t=t0, u=u)
                 gen.append(output)
-                real.append(batch["y"])
+                real.append(batch["y"].to(self.device))
 
         real = torch.cat(real, dim=0).squeeze(1).cpu()
         gen = torch.cat(gen, dim=0).squeeze(1).cpu()

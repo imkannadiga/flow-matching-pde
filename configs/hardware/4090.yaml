@@ -1,0 +1,8 @@
+# @package _global_
+# RTX 4090-oriented batch defaults (tune for your dataset / memory).
+data:
+  batch_size: 48
+
+hardware:
+  name: "4090"
+  grad_accum_steps: 1

@@ -378,9 +378,9 @@ class Trainer:
         epoch : int | None
             current epoch. Used when logging both train and eval
             default None
-        mode : Literal {'single_step', 'autoregression'}
+        mode : Literal {'single_step', 'autoregressive'}
             if 'single_step', performs standard evaluation
-            if 'autoregression' loops through `max_steps` steps
+            if 'autoregressive' loops through `max_steps` steps
         max_steps : int, optional
             max number of steps for autoregressive rollout. 
             If None, runs the full rollout.
@@ -417,7 +417,7 @@ class Trainer:
                     return_output = True
                 if mode == "single_step":
                     eval_step_losses, outs = self.eval_one_batch(sample, loss_dict, return_output=return_output)
-                elif mode == "autoregression":
+                elif mode == "autoregressive":
                     eval_step_losses, outs = self.eval_one_batch_autoreg(sample, loss_dict,
                                                                          return_output=return_output,
                                                                          max_steps=max_steps)

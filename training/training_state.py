@@ -121,13 +121,12 @@ def save_training_state(save_dir: Union[str, Path], save_name: str,
     manifest = {}
 
     # Just save the model.module if model is in DDP mode
+    save_dir.mkdir(exist_ok=True, parents=True)
+    model_pth = save_dir / f"{save_name}_state_dict.pt"
     if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-        save_dir.mkdir(exist_ok=True, parents=True)
-        model_pth = save_dir / f"{save_name}_state_dict.pt"
         torch.save(model.module.state_dict(), model_pth.as_posix())
     else:
-        # otherwise save the model checkpoint
-        model.save_checkpoint(save_dir, save_name)
+        torch.save(model.state_dict(), model_pth.as_posix())
     manifest['model'] = f"{save_name}_state_dict.pt"
 
     # save optimizer if state exists

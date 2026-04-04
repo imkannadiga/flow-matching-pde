@@ -1,0 +1,21 @@
+# @package _global_
+# Architecture sweep under FM + level-2 conditioning (coords + FiLM).
+# Run: ``python train.py --config-path configs --config-name experiment/phase3 --multirun``
+defaults:
+  - /train
+  - /conditioning/level2
+  - _self_
+
+model:
+  coord_channels: 2
+  film_param_dim: ${conditioning.param_dim}
+
+data:
+  default_param_vector: [20.0, 0.001]
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      model: unet,fno,lno,vit,amfno
+      seed: 0,1,2

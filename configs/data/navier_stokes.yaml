@@ -6,3 +6,5 @@ filename: fno_ns_Re20_N5000_T50.npy
 batch_size: 256
 n_tr: 4000
 n_te: 1000
+# Optional [Re, nu, …] broadcast to every sample (for FiLM / level2 without PDEBench).
+default_param_vector: null

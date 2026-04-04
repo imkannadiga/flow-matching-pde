@@ -1,8 +1,9 @@
 defaults:
   - _self_
+  - train: debug
   - data: navier_stokes
   - model: fno
-  - eval: simulation
+  - eval: base
 
 experiment_name: trial
 

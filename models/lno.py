@@ -1,94 +1,91 @@
 import torch
-import matplotlib.pyplot as plt
-import sys
-from neuralop.models import LocalFNO as _LNO
-from neuralop.models import base_model
+from typing import Optional
 
-"""
- A version of the time-conditioned FNO model.
- Uses the new neuralop package.
- Works by concatenating time as an input channel.
-"""
+from models.fno import make_posn_embed, t_allhot
+from models.base import PDEModel
+from models.film import FiLMLayer
 
-def t_allhot(t, shape):
-    batch_size = shape[0]
-    n_channels = shape[1]
-    dim = shape[2:]
-    n_dim = len(dim)
+_LocalNO = None
+_LOCAL_NO_IMPORT_ERROR: Optional[Exception] = None
 
-    t = t.view(batch_size, *[1]*(n_channels+n_dim))
-    t = t * torch.ones(batch_size, 1, *dim, device=t.device)
-    return t
+try:
+    from neuralop.models.local_no import LocalNO as _LocalNO
+except Exception as e:  # pragma: no cover - optional torch-harmonics / DISCO stack
+    _LOCAL_NO_IMPORT_ERROR = e
 
 
-class LFNO(base_model.BaseModel):
-    def __init__(self, modes, vis_channels, hidden_channels, x_dim=1, default_in_shape=[64,64],  
-                 disco_kernel_shape=(5, 5), t_scaling=1000, **kwargs):
-        super(LFNO, self).__init__()
-        
+class LFNO(PDEModel):
+    def __init__(
+        self,
+        modes,
+        vis_channels,
+        hidden_channels,
+        x_dim=1,
+        default_in_shape=(64, 64),
+        disco_kernel_shape=(5, 5),
+        t_scaling=1,
+        disco_layers=True,
+        coord_channels=0,
+        film_param_dim=0,
+        **kwargs,
+    ):
+        super().__init__()
+        if _LocalNO is None:
+            raise RuntimeError(
+                "LFNO requires `neuralop` LocalNO (often needs `pip install torch-harmonics` "
+                "for DISCO layers). Original import error: "
+                f"{_LOCAL_NO_IMPORT_ERROR!r}"
+            ) from _LOCAL_NO_IMPORT_ERROR
+
         self.t_scaling = t_scaling
-        
-        # modes = 16
-        # hidden = 32
-        # proj = 64
-        
-        #model = TFNO(n_modes=(16, 16), hidden_channels=32, projection_channels=64, factorization='tucker', rank=0.42)
-        n_modes = (modes, ) * x_dim   # Same number of modes in each x dimension
-        in_channels = vis_channels + x_dim + 1 # visual channels + spatial embedding + time embedding
+        self.vis_channels = int(vis_channels)
+        self.coord_channels = int(coord_channels)
+        n_modes = (modes,) * x_dim
+        spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
+        in_channels = self.vis_channels + spatial_extra + 1
+        dks = list(disco_kernel_shape)
+        if len(dks) == 1:
+            dks = [dks[0], dks[0]]
 
-        self.model = _LNO(n_modes=n_modes,  
-                         hidden_channels=hidden_channels, disco_kernel_shape=disco_kernel_shape,
-                         in_channels=in_channels, out_channels=vis_channels, default_in_shape=default_in_shape, **kwargs)
-        
-        
-    def forward(self, t, u, **kwargs):
-        """
-        Forward pass for LFNO model.
-        
-        Args:
-            t: Time tensor, either scalar or (batch_size,)
-            u: Input tensor (batch_size, channels, h, w)
-        """
-        # u: (batch_size, channels, h, w)
-        # t: either scalar or (batch_size,)
-        
+        self.model = _LocalNO(
+            n_modes=n_modes,
+            in_channels=in_channels,
+            out_channels=vis_channels,
+            hidden_channels=hidden_channels,
+            default_in_shape=list(default_in_shape),
+            disco_kernel_shape=dks,
+            disco_layers=disco_layers,
+            **kwargs,
+        )
+        fpd = int(film_param_dim) if film_param_dim else 0
+        self.film = FiLMLayer(fpd, vis_channels) if fpd > 0 else None
+
+    def forward(self, t, u, coords=None, params=None):
         t = t / self.t_scaling
         batch_size = u.shape[0]
         dims = u.shape[2:]
-        
+
         if t.dim() == 0 or t.numel() == 1:
-            t = torch.ones(u.shape[0], device=t.device) * t
+            t = torch.ones(u.shape[0], device=t.device, dtype=t.dtype) * t
 
         assert t.dim() == 1
         assert t.shape[0] == u.shape[0]
 
-        # Concatenate time as a new channel
-        t = t_allhot(t, u.shape)
-        # Concatenate position as new channel(s)
-        posn_emb = make_posn_embed(batch_size, dims).to(u.device)
-        u = torch.cat((u, posn_emb, t), dim=1).float()
-        
-        out = self.model(u)
+        t_ch = t_allhot(t, u)
+        if self.coord_channels > 0:
+            if u.shape[1] != self.vis_channels + self.coord_channels:
+                raise ValueError(
+                    f"Expected u with {self.vis_channels + self.coord_channels} channels; got {u.shape[1]}"
+                )
+            u_in = torch.cat((u, t_ch), dim=1).float()
+        else:
+            if coords is not None:
+                posn = coords.float().contiguous()
+            else:
+                posn = make_posn_embed(batch_size, dims).to(u.device)
+            u_in = torch.cat((u, posn, t_ch), dim=1).float()
 
+        out = self.model(u_in)
+        if self.film is not None and params is not None:
+            out = self.film(out, params)
         return out
-    
-
-def make_posn_embed(batch_size, dims):
-    
-    if len(dims) == 1:
-        # Single channel of spatial embeddings
-        emb = torch.linspace(0, 1, dims[0])
-        emb = emb.unsqueeze(0).repeat(batch_size, 1, 1)
-    elif len(dims) == 2:
-        # 2 Channels of spatial embeddings
-        x1 = torch.linspace(0, 1, dims[1]).repeat(dims[0], 1).unsqueeze(0)
-        x2 = torch.linspace(0, 1, dims[0]).repeat(dims[1], 1).T.unsqueeze(0)
-        emb = torch.cat((x1, x2), dim=0)  # (2, dims[0], dims[1])
-
-        # Repeat along new batch channel
-        emb = emb.unsqueeze(0).repeat(batch_size, 1, 1, 1)  # (batch_size, 2, *dims)
-    else:
-        raise NotImplementedError
-    
-    
-    return emb

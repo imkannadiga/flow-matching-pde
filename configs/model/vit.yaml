@@ -1,0 +1,12 @@
+_target_: models.vit.FieldViT
+
+name: vit
+vis_channels: 1
+patch_size: 4
+embed_dim: 192
+depth: 8
+num_heads: 6
+mlp_ratio: 4.0
+coord_channels: 0
+film_param_dim: ${conditioning.param_dim}
+t_scaling: 1

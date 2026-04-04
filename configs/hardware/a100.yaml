@@ -1,0 +1,9 @@
+# @package _global_
+# A100-oriented batch defaults (tune for your dataset / memory).
+data:
+  batch_size: 64
+
+# Optional future: wire ``grad_accum_steps`` when the Trainer supports it.
+hardware:
+  name: a100
+  grad_accum_steps: 1

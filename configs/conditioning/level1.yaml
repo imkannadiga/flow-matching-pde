@@ -1,0 +1,9 @@
+# Level 1: concatenate normalized coord grid channels to ``u`` before the model.
+# For U-Net / ViT / AM-FNO, set ``model.coord_channels: 2`` when using this level.
+append_coords: true
+film_params: false
+domain_bounds:
+  - [0.0, 1.0]
+  - [0.0, 1.0]
+param_keys: []
+param_dim: 0
