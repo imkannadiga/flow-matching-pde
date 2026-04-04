@@ -5,6 +5,8 @@ n_epochs: 300
 wandb_log: ${wandb.use_wandb}
 device: "cuda"
 mixed_precision: False
+# Effective update batch ≈ batch_size × this (same loss reduction as one large batch with sum loss).
+gradient_accumulation_steps: 1
 eval_interval: 10
 log_output: True
 use_distributed: False

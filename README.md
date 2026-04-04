@@ -90,6 +90,8 @@ flow-matching-pde/
 
 Set `PROJECT_ROOT` to the repository root so data paths resolve. Each run writes `config_hash.txt` and `results.json` under the Hydra output directory, and uses trajectory-level train/test splits (no leakage across trajectories).
 
+**CUDA OOM / large batches:** keep `data.batch_size` at a size that fits in memory, and increase ``trainer.gradient_accumulation_steps`` so each optimizer step uses gradients summed over that many microbatches (effective batch ≈ ``batch_size × gradient_accumulation_steps`` with the default sum-reduction MSE). Optionally set ``trainer.mixed_precision=true`` (autocast) to reduce memory further.
+
 ```bash
 export PROJECT_ROOT=$(pwd)
 python train.py \

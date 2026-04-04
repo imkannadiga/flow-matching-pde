@@ -70,6 +70,11 @@ class Trainer:
     use_distributed : bool, default is False
         whether to use DDP
     verbose : bool, default is False
+    gradient_accumulation_steps : int, default is 1
+        Number of dataloader batches to accumulate before ``optimizer.step()`` (1 = disabled).
+        Lets you approximate a larger batch size without raising peak activation memory: use a
+        smaller per-step ``batch_size`` and set this to ``k`` for an effective update batch of
+        ``k * batch_size`` (with sum-reduction losses, gradients match one pass over those samples).
     """
     def __init__(
         self,
@@ -83,6 +88,7 @@ class Trainer:
         log_output: bool=False,
         use_distributed: bool=False,
         verbose: bool=False,
+        gradient_accumulation_steps: int = 1,
         **kwargs
     ):
         """
@@ -109,6 +115,10 @@ class Trainer:
                 self.autocast_device_type = "cpu"
         self.mixed_precision = mixed_precision
         self.data_processor = pre_train_processor
+        ga = int(gradient_accumulation_steps)
+        if ga < 1:
+            raise ValueError("gradient_accumulation_steps must be >= 1")
+        self.gradient_accumulation_steps = ga
     
         # Track starting epoch for checkpointing/resuming
         self.start_epoch = 0
@@ -306,11 +316,17 @@ class Trainer:
         # track number of training examples in batch
         self.n_samples = 0
 
+        accum = self.gradient_accumulation_steps
+        num_batches = len(train_loader)
+        self.optimizer.zero_grad(set_to_none=True)
+
         for idx, sample in enumerate(train_loader):
-            
-            loss = self.train_one_batch(idx, sample, training_loss)
+            loss = self._compute_training_loss(idx, sample, training_loss)
             loss.backward()
-            self.optimizer.step()
+
+            if (idx + 1) % accum == 0 or (idx + 1) == num_batches:
+                self.optimizer.step()
+                self.optimizer.zero_grad(set_to_none=True)
 
             train_err += loss.item()
             with torch.no_grad():
@@ -493,30 +509,13 @@ class Trainer:
         self.epoch = epoch
         return None
 
-    def train_one_batch(self, idx, sample, training_loss):
-        """Run one batch of input through model
-           and return training loss on outputs
-
-        Parameters
-        ----------
-        idx : int
-            index of batch within train_loader
-        sample : dict
-            data dictionary holding one batch
-
-        Returns
-        -------
-        loss: float | Tensor
-            float value of training loss
-        """
-
-        self.optimizer.zero_grad(set_to_none=True)
+    def _compute_training_loss(self, idx, sample, training_loss):
+        """Forward + loss for one dataloader batch (no backward, no zero_grad, no optimizer step)."""
         if self.regularizer:
             self.regularizer.reset()
         if self.data_processor is not None:
             sample = self.data_processor.preprocess(sample)
         else:
-            # load data to device if no preprocessor exists
             sample = {
                 k: v.to(self.device)
                 for k, v in sample.items()
@@ -533,24 +532,30 @@ class Trainer:
                 out = self.model(**sample["x"])
         else:
             out = self.model(**sample["x"])
-        
+
         if self.epoch == 0 and idx == 0 and self.verbose and isinstance(out, torch.Tensor):
             print(f"Raw outputs of shape {out.shape}")
 
         if self.data_processor is not None:
             out, sample = self.data_processor.postprocess(out, sample)
 
-        loss = 0.0
-
         if self.mixed_precision:
             with torch.autocast(device_type=self.autocast_device_type):
-                loss += training_loss(out, sample["y"])
+                loss = training_loss(out, sample["y"])
         else:
-            loss += training_loss(out, sample["y"])
+            loss = training_loss(out, sample["y"])
 
         if self.regularizer:
-            loss += self.regularizer.loss
-        
+            loss = loss + self.regularizer.loss
+
+        return loss
+
+    def train_one_batch(self, idx, sample, training_loss):
+        """Single optimizer update from one batch (full forward, backward, step)."""
+        self.optimizer.zero_grad(set_to_none=True)
+        loss = self._compute_training_loss(idx, sample, training_loss)
+        loss.backward()
+        self.optimizer.step()
         return loss
     
     def eval_one_batch(self,
