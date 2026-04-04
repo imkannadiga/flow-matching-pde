@@ -6,6 +6,9 @@ with ``configs/evaluate.yaml``.
 """
 
 import hydra
+
+import models  # noqa: F401 — applies torch.empty / tltorch compat before neuralop loads
+
 from omegaconf import DictConfig
 
 from evaluation.ns_evaluator import NSEvaluator

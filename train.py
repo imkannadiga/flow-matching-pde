@@ -4,6 +4,9 @@ from pathlib import Path
 
 import hydra
 import torch
+
+import models  # noqa: F401 — applies torch.empty / tltorch compat before neuralop loads
+
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf

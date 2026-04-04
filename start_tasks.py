@@ -1,4 +1,7 @@
 import hydra
+
+import models  # noqa: F401 — applies torch.empty / tltorch compat before neuralop loads
+
 from omegaconf import DictConfig
 from hydra.utils import instantiate
 from evaluation.ns_evaluator import NSEvaluator

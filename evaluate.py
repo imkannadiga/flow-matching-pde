@@ -7,6 +7,9 @@ Example::
 """
 
 import hydra
+
+import models  # noqa: F401 — applies torch.empty / tltorch compat before neuralop loads
+
 from omegaconf import DictConfig
 
 from evaluation.rollout_eval import RolloutEvaluator
