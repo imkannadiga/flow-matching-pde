@@ -1,6 +1,6 @@
 from timeit import default_timer
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 import sys
 import warnings
 
@@ -20,6 +20,18 @@ except ModuleNotFoundError:
 import neuralop.mpu.comm as comm
 from neuralop.losses import LpLoss
 from .training_state import load_training_state, save_training_state
+
+
+def _wandb_numeric(x: Any) -> float:
+    """Convert torch / numpy scalars to a Python float for W&B (charts need CPU scalars)."""
+    if isinstance(x, torch.Tensor):
+        return float(x.detach().cpu().item())
+    if hasattr(x, "item") and callable(x.item) and not isinstance(x, (float, int, bool)):
+        try:
+            return float(x.item())
+        except Exception:
+            pass
+    return float(x)
 
 
 class Trainer:
@@ -312,14 +324,34 @@ class Trainer:
         lr = None
         for pg in self.optimizer.param_groups:
             lr = pg["lr"]
-        if self.verbose and epoch % self.eval_interval == 0:
-            self.log_training(
+        will_eval = epoch % self.eval_interval == 0
+        if self.verbose and will_eval:
+            self._print_training(
                 epoch=epoch,
                 time=epoch_train_time,
                 avg_loss=avg_loss,
                 train_err=train_err,
                 avg_lasso_loss=avg_lasso_loss,
-                lr=lr
+                lr=lr,
+            )
+        # W&B: independent of verbose (otherwise quiet runs only show system charts).
+        if self.wandb_log:
+            train_payload = {
+                "train/train_err": train_err,
+                "train/epoch_time_s": epoch_train_time,
+                "train/avg_loss": avg_loss,
+                "train/lr": lr,
+            }
+            if avg_lasso_loss is not None:
+                train_payload["train/avg_lasso_loss"] = avg_lasso_loss
+            wandb.log(
+                {
+                    k: _wandb_numeric(v)
+                    for k, v in train_payload.items()
+                    if v is not None
+                },
+                step=epoch + 1,
+                commit=not will_eval,
             )
 
         return train_err, avg_loss, avg_lasso_loss, epoch_train_time
@@ -359,9 +391,8 @@ class Trainer:
                                     mode=loader_eval_mode,
                                     max_steps=max_autoregressive_steps)   
             all_metrics.update(**loader_metrics)
-        if self.verbose:
-            self.log_eval(epoch=epoch,
-                      eval_metrics=all_metrics)
+        if self.verbose or self.wandb_log:
+            self.log_eval(epoch=epoch, eval_metrics=all_metrics)
         return all_metrics
     
     def evaluate(self, loss_dict, data_loader, log_prefix="", epoch=None, mode="single_step", max_steps=None):
@@ -645,6 +676,26 @@ class Trainer:
         else:
             return eval_step_losses, None
     
+    def _print_training(
+        self,
+        epoch: int,
+        time: float,
+        avg_loss: float,
+        train_err: float,
+        avg_lasso_loss: float = None,
+        lr: float = None,
+    ):
+        """Stdout-only training line (eval-interval gated by caller)."""
+        msg = f"[{epoch}] time={time:.2f}, "
+        msg += f"avg_loss={avg_loss:.4f}, "
+        msg += f"train_err={train_err:.4f}"
+        if avg_lasso_loss is not None:
+            msg += f", avg_lasso={avg_lasso_loss:.4f}"
+        if lr is not None:
+            msg += f", lr={lr:g}"
+        print(msg)
+        sys.stdout.flush()
+
     def log_training(self, 
             epoch:int,
             time: float,
@@ -653,46 +704,15 @@ class Trainer:
             avg_lasso_loss: float=None,
             lr: float=None
             ):
-        """Basic method to log results
-        from a single training epoch. 
-        
-
-        Parameters
-        ----------
-        epoch: int
-        time: float
-            training time of epoch
-        avg_loss: float
-            average train_err per individual sample
-        train_err: float
-            train error for entire epoch
-        avg_lasso_loss: float
-            average lasso loss from regularizer, optional
-        lr: float
-            learning rate at current epoch
-        """
-        # accumulate info to log to wandb
-        if self.wandb_log:
-            values_to_log = dict(
-                train_err=train_err,
-                time=time,
-                avg_loss=avg_loss,
-                avg_lasso_loss=avg_lasso_loss,
-                lr=lr)
-
-        msg = f"[{epoch}] time={time:.2f}, "
-        msg += f"avg_loss={avg_loss:.4f}, "
-        msg += f"train_err={train_err:.4f}"
-        if avg_lasso_loss is not None:
-            msg += f", avg_lasso={avg_lasso_loss:.4f}"
-
-        print(msg)
-        sys.stdout.flush()
-        
-        if self.wandb_log:
-            wandb.log(data=values_to_log,
-                      step=epoch+1,
-                      commit=False)
+        """Legacy hook: console only. W&B train metrics are logged from ``train_one_epoch``."""
+        self._print_training(
+            epoch=epoch,
+            time=time,
+            avg_loss=avg_loss,
+            train_err=train_err,
+            avg_lasso_loss=avg_lasso_loss,
+            lr=lr,
+        )
     
     def log_eval(self,
                  epoch: int,
@@ -709,22 +729,25 @@ class Trainer:
             keyed f"{test_loader_name}_{metric}" for each test_loader
        
         """
-        values_to_log = {}
-        msg = ""
+        parts = []
         for metric, value in eval_metrics.items():
-            if isinstance(value, float) or isinstance(value, torch.Tensor):
-                msg += f"{metric}={value:.4f}, "
-            if self.wandb_log:
-                values_to_log[metric] = value       
-        
-        msg = f"Eval: " + msg[:-2] # cut off last comma+space
-        print(msg)
-        sys.stdout.flush()
+            try:
+                v = _wandb_numeric(value)
+            except (TypeError, ValueError):
+                continue
+            parts.append((metric, v))
 
-        if self.wandb_log:
-            wandb.log(data=values_to_log,
-                      step=epoch+1,
-                      commit=True)
+        if self.verbose and parts:
+            msg = "Eval: " + ", ".join(f"{m}={v:.4f}" for m, v in parts)
+            print(msg)
+            sys.stdout.flush()
+
+        if self.wandb_log and parts:
+            wandb.log(
+                {f"eval/{m}": v for m, v in parts},
+                step=epoch + 1,
+                commit=True,
+            )
 
     def resume_state_from_dir(self, save_dir):
         """
