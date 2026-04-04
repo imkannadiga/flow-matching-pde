@@ -8,3 +8,6 @@ pre_train_processor:
   domain_bounds: ${conditioning.domain_bounds}
   film_params: ${conditioning.film_params}
   param_keys: ${conditioning.param_keys}
+  stack_x_aux: true
+  stack_channel_bounds: true
+  stack_params_into_u: true

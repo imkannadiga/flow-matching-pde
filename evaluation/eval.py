@@ -1,6 +1,7 @@
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate
+from training.model_channels import infer_model_shapes_from_data
 from data.navier_stokes import NSDataModule
 from evaluation.eval_utils import load_model_from_manifest,get_pred_seq, plot_sequence, density_mse, distribution_kde, compare_spectra
 from matplotlib import pyplot as plt
@@ -8,8 +9,11 @@ import os
 
 def evaluate(cfg: DictConfig):
     
-    device = cfg.eval.device
-    
+    device = torch.device(cfg.eval.device)
+    if OmegaConf.select(cfg, "data") is not None:
+        _dm = instantiate(cfg.data)
+        _tl, _ = _dm.get_dataloaders()
+        infer_model_shapes_from_data(cfg, device, train_loader=_tl)
     # TODO: Load model from latest training run
     model = load_model_from_manifest(cfg.train.save_path, model_raw=instantiate(cfg.model))
     model.eval()

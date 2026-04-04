@@ -84,11 +84,15 @@ class FieldViT(PDEModel):
         coord_channels: int = 0,
         film_param_dim: int = 0,
         t_scaling: float = 1.0,
+        out_channels=None,
         **kwargs,
     ):
         super().__init__()
         del kwargs
         self.vis_channels = int(vis_channels)
+        self.out_channels = (
+            int(out_channels) if out_channels is not None else self.vis_channels
+        )
         self.coord_channels = int(coord_channels)
         self.patch_size = int(patch_size)
         self.embed_dim = int(embed_dim)
@@ -110,7 +114,7 @@ class FieldViT(PDEModel):
             ]
         )
         self.norm = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, vis_channels * patch_size * patch_size)
+        self.head = nn.Linear(embed_dim, self.out_channels * patch_size * patch_size)
 
     def forward(self, t, u, coords=None, params=None):
         del coords
@@ -146,7 +150,7 @@ class FieldViT(PDEModel):
         x = self.norm(x)
         x = self.head(x)
         gh, gw = h // ps, w // ps
-        x = x.view(b, gh, gw, self.vis_channels, ps, ps)
+        x = x.view(b, gh, gw, self.out_channels, ps, ps)
         x = x.permute(0, 3, 1, 4, 2, 5).contiguous()
-        x = x.view(b, self.vis_channels, h, w)
+        x = x.view(b, self.out_channels, h, w)
         return x

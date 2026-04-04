@@ -2,7 +2,7 @@ _target_: models.fno.FNO
 
 name: fno
 modes: 64
-vis_channels: 1
+# ``vis_channels`` / ``out_channels`` are set at runtime from the first preprocessed batch (``train.py``).
 hidden_channels: 64
 proj_channels: 64
 x_dim: 2

@@ -3,7 +3,6 @@ _target_: models.lno.LFNO
 name: lno
 
 modes: 16
-vis_channels: 1
 hidden_channels: 64
 x_dim: 2
 t_scaling: 1

@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from training.data_processors import DefaultDataProcessor
+from training.input_conditioning import stack_additional_input_channels
 from util.util import reshape_for_batchwise
 
 
@@ -23,6 +24,9 @@ class DiffusionDataProcessor(DefaultDataProcessor):
         film_params: bool = False,
         param_keys=None,
         coord_normalize: str = "neg1_1",
+        stack_x_aux: bool = True,
+        stack_channel_bounds: bool = True,
+        stack_params_into_u: bool = True,
     ):
         super().__init__(
             device,
@@ -32,6 +36,9 @@ class DiffusionDataProcessor(DefaultDataProcessor):
             param_keys=param_keys,
             coord_normalize=coord_normalize,
         )
+        self.stack_x_aux = bool(stack_x_aux)
+        self.stack_channel_bounds = bool(stack_channel_bounds)
+        self.stack_params_into_u = bool(stack_params_into_u)
         self.device = device
         self.vp = vp
         self.sigma_min = sigma_min
@@ -74,7 +81,14 @@ class DiffusionDataProcessor(DefaultDataProcessor):
             x_noisy = mu + sigma * eps
             target = eps
 
-        out = {"x": {"u": x_noisy, "t": tau}, "y": target}
+        u = stack_additional_input_channels(
+            x_noisy,
+            sample,
+            stack_x_aux=self.stack_x_aux,
+            stack_channel_bounds=self.stack_channel_bounds,
+            stack_params_into_u=self.stack_params_into_u,
+        )
+        out = {"x": {"u": u, "t": tau}, "y": target}
         if "params" in sample:
             out["params"] = sample["params"]
         return self.apply_model_conditioning(out)

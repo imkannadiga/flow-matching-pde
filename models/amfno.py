@@ -30,12 +30,16 @@ class AMFNO(PDEModel):
         film_param_dim=0,
         param_dim: int = 2,
         context_dim: int = 8,
+        out_channels=None,
         **kwargs,
     ):
         super().__init__()
         kwargs.pop("name", None)
         self.t_scaling = t_scaling
         self.vis_channels = int(vis_channels)
+        self.out_channels = (
+            int(out_channels) if out_channels is not None else self.vis_channels
+        )
         self.coord_channels = int(coord_channels)
         self.param_dim = int(param_dim)
         self.context_dim = int(context_dim)
@@ -55,11 +59,11 @@ class AMFNO(PDEModel):
             hidden_channels=hidden_channels,
             projection_channel_ratio=projection_channel_ratio,
             in_channels=in_channels,
-            out_channels=vis_channels,
+            out_channels=self.out_channels,
             **kwargs,
         )
         fpd = int(film_param_dim) if film_param_dim else 0
-        self.film = FiLMLayer(fpd, vis_channels) if fpd > 0 else None
+        self.film = FiLMLayer(fpd, self.out_channels) if fpd > 0 else None
 
     def forward(self, t, u, coords=None, params=None):
         t = t / self.t_scaling

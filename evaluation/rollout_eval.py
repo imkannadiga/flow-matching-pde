@@ -18,6 +18,7 @@ from evaluation.eval_utils import load_model_from_manifest
 from evaluation.metrics import density_mse, inference_time, spectrum_mse
 from evaluation.results_logger import RESULT_FIELDS, append_row, load_train_results_json
 from evaluation.samplers import build_sampler
+from training.model_channels import infer_model_shapes_from_data
 
 
 class RolloutEvaluator:
@@ -28,6 +29,11 @@ class RolloutEvaluator:
             dev = "cpu"
         self.device = torch.device(dev)
 
+        self.data = instantiate(cfg.data)
+        _train_loader, _ = self.data.get_dataloaders()
+        infer_model_shapes_from_data(
+            cfg, self.device, train_loader=_train_loader
+        )
         self.model = instantiate(cfg.model)
         ckpt = Path(
             OmegaConf.select(cfg, "evaluate.checkpoint_dir")
@@ -45,7 +51,6 @@ class RolloutEvaluator:
         self.model.to(self.device)
         self.model.eval()
 
-        self.data = instantiate(cfg.data)
         self.paradigm = OmegaConf.select(cfg, "paradigm.name", default="fm")
         st = OmegaConf.select(cfg, "evaluate.sampler_type", default="euler")
         self.sampler = build_sampler(

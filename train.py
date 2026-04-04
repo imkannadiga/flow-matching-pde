@@ -12,6 +12,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from util.reproducibility import save_config_hash, set_seed
+from training.model_channels import infer_model_shapes_from_data
 
 
 @hydra.main(config_path="configs", config_name="train", version_base=None)
@@ -20,8 +21,15 @@ def main(cfg: DictConfig):
     set_seed(int(cfg.seed))
     config_hash = save_config_hash(cfg, run_dir)
 
+    device = torch.device(cfg.trainer.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        device = torch.device("cpu")
+
     data = instantiate(cfg.data)
-    model = instantiate(cfg.model)
+    train_loader, test_loader = data.get_dataloaders()
+
+    infer_model_shapes_from_data(cfg, device, train_loader=train_loader)
+    model = instantiate(cfg.model).to(device)
 
     param_count = sum(p.numel() for p in model.parameters())
     if param_count < 10_000_000 or param_count > 30_000_000:
@@ -31,9 +39,9 @@ def main(cfg: DictConfig):
             stacklevel=1,
         )
 
-    train_loader, test_loader = data.get_dataloaders()
-
     pre_train_processor = instantiate(cfg.trainer.pre_train_processor)
+
+    pre_train_processor = pre_train_processor.to(device)
 
     _optimizer = instantiate(cfg.trainer.optimizer)
     optimizer = _optimizer(params=model.parameters())

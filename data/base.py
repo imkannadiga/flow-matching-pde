@@ -1,7 +1,8 @@
 import abc
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import h5py
 import numpy as np
 import torch
 from omegaconf import DictConfig
@@ -20,6 +21,20 @@ def _train_test_trajectory_indices(
     train_traj = perm[:n_tr]
     test_traj = perm[n_tr : n_tr + n_te]
     return train_traj, test_traj
+
+
+def _train_test_sample_indices(
+    n_samples: int, n_tr: int, n_te: int, seed: int
+) -> Tuple[List[int], List[int]]:
+    """Shuffle sample indices 0..N-1 and split into disjoint train / test index lists."""
+    n_tr = min(n_tr, n_samples)
+    n_te = min(n_te, max(0, n_samples - n_tr))
+    g = torch.Generator()
+    g.manual_seed(seed)
+    perm = torch.randperm(n_samples, generator=g).tolist()
+    train_idx = perm[:n_tr]
+    test_idx = perm[n_tr : n_tr + n_te]
+    return train_idx, test_idx
 
 
 class BaseSequentialDataset(Dataset):
@@ -180,18 +195,57 @@ class BaseDataModule(abc.ABC):
         # Navier-Stokes numpy layout is [T, H, W, N]; concatenate trajectories on last dim.
         return torch.cat(chunks, dim=-1)
 
-    def _load_tensor_from_path(self, path: Path) -> torch.Tensor:
+    @staticmethod
+    def load_hdf5_arrays(
+        path: Path,
+        keys: Sequence[str],
+        dtype: np.dtype = np.float32,
+    ) -> Dict[str, torch.Tensor]:
+        """Read named HDF5 datasets from a single file into CPU float tensors."""
         path = Path(path)
-        fp = path.as_posix()
+        out: Dict[str, torch.Tensor] = {}
+        with h5py.File(path, "r") as f:
+            available = list(f.keys())
+            for key in keys:
+                if key not in f:
+                    raise KeyError(
+                        f"Dataset {key!r} not in {path}; available top-level keys: {available}"
+                    )
+                arr = np.asarray(f[key][...], dtype=dtype)
+                out[key] = torch.from_numpy(arr)
+        return out
+
+    @staticmethod
+    def load_hdf5_array(
+        path: Path, key: str, dtype: np.dtype = np.float32
+    ) -> torch.Tensor:
+        """Read one HDF5 dataset as a CPU float tensor."""
+        return BaseDataModule.load_hdf5_arrays(path, (key,), dtype=dtype)[key]
+
+    def _load_tensor_from_path(
+        self,
+        path: Path,
+        *,
+        hdf5_dataset_key: Optional[str] = None,
+    ) -> torch.Tensor:
+        path = Path(path)
+        fp = path.as_posix().lower()
         if fp.endswith(".npy"):
-            arr = np.load(fp, allow_pickle=True)
+            arr = np.load(path, allow_pickle=True)
             return torch.from_numpy(np.asarray(arr)).float()
         if fp.endswith(".pt"):
-            t = torch.load(fp, weights_only=False)
+            t = torch.load(path, weights_only=False)
             if not torch.is_tensor(t):
                 t = torch.from_numpy(np.asarray(t)).float()
             return t.float()
-        raise ValueError(f"Unsupported file format: {fp}")
+        if fp.endswith(".h5") or fp.endswith(".hdf5"):
+            if not hdf5_dataset_key:
+                raise ValueError(
+                    f"HDF5 file {path} requires a dataset name; pass "
+                    f"hdf5_dataset_key=... or use load_hdf5_arrays(path, keys)."
+                )
+            return self.load_hdf5_array(path, hdf5_dataset_key)
+        raise ValueError(f"Unsupported file format: {path}")
 
     @abc.abstractmethod
     def preprocess(self, data: torch.Tensor) -> torch.Tensor:

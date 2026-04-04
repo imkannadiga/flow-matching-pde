@@ -57,7 +57,8 @@ flow-matching-pde/
 ├── data/                # Data modules
 │   ├── base.py         # Base data module
 │   ├── navier_stokes.py # NS data module
-│   └── navier_stokes_fm.py # Flow matching NS data module
+│   ├── navier_stokes_fm.py # Flow matching NS data module
+│   └── darcy.py # Darcy flow HDF5 (nu → pressure)
 ├── models/              # Model architectures
 │   ├── fno.py          # Fourier Neural Operator
 │   ├── lno.py          # Local Neural Operator
@@ -114,6 +115,8 @@ python train.py --config-path configs --config-name experiment/phase1 --multirun
 
 Training defaults include ``conditioning: level0`` (see ``configs/conditioning/``). Level 1 concatenates a normalized spatial grid to ``u`` before the model; level 2 also threads ``batch["params"]`` into the forward pass for FiLM. For level 1 or 2, set ``model.coord_channels=2`` for FNO, LNO, U-Net, ViT, and AM-FNO so channel counts match the processor. For level 2 on NumPy Navier-Stokes without per-trajectory metadata, use ``data.default_param_vector`` (values in the same order as ``conditioning.param_keys``, default ``[Re, nu]``).
 
+Flow matching and diffusion processors (``training/paradigms/fm.py``, ``diffusion.py``) build the core path on ``batch["x"]`` and ``batch["y"]`` (same channel count for the rectified bridge), then **stack** optional tensors onto ``u``: ``batch["x_aux"]``, per-channel ``channel_mins`` / ``channel_maxs`` (each ``(B, C_field)``), and expanded ``batch["params"]``. Toggle stacking via ``paradigm.pre_train_processor.stack_*``. **Input/output widths for the backbone are not set in YAML:** ``training/model_channels.py`` patches ``cfg.model`` from the first preprocessed batch—``out_channels`` is always ``batch["y"].shape[1]`` (the supervised field), and the input width matches ``batch["x"]["u"].shape[1]`` (with the usual ``coord_channels`` split for FNO / ViT / U-Net). U-Net uses ``in_channels`` / ``out_channels`` in the same way internally.
+
 Phase 2 (FM + level 2 + synthetic constant params) and phase 3 (architecture × seed sweep under full conditioning):
 
 ```bash
@@ -121,7 +124,7 @@ python train.py --config-path configs --config-name experiment/phase2 --multirun
 python train.py --config-path configs --config-name experiment/phase3 --multirun
 ```
 
-Compose / instantiate smoke (no data I/O beyond config): ``python scripts/dry_compose_sprint3.py``. PDEBench-style HDF5 loads are configured via ``configs/data/pdebench_ns.yaml`` and ``data/pdebench_ns.py``.
+Compose / instantiate smoke (no data I/O beyond config): ``python scripts/dry_compose_sprint3.py``. PDEBench-style HDF5 loads are configured via ``configs/data/pdebench_ns.yaml`` and ``data/pdebench_ns.py``. Darcy-flow HDF5 pairs (``nu`` / ``tensor``) use ``configs/data/darcy.yaml`` and ``data/darcy.py``; set ``load_all_hdf5=true`` to merge every ``*.hdf5`` / ``*.h5`` in ``data_dir``, with per-file ``beta`` from the filename in ``batch["params"]`` and optionally as an extra constant channel on ``x``. ``BaseDataModule.load_hdf5_arrays`` supports reading named datasets from a single file.
 
 Optional hardware presets: ``defaults`` entry ``hardware=a100`` or ``hardware=4090`` (overrides ``data.batch_size``; see ``configs/hardware/``).
 

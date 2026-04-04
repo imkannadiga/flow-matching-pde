@@ -1,0 +1,23 @@
+_target_: data.darcy.DarcyFlowDataModule
+
+name: darcy
+data_dir: ${oc.env:PROJECT_ROOT}/data/_data/darcy/
+# Single file (leave load_all_hdf5 false) or omit filename when load_all_hdf5 is true
+filename: 2D_Darcy_Flow_beta1.00_Train.hdf5
+# Glob and merge every *.hdf5 / *.h5 under data_dir (sorted); requires beta in each name if include_beta
+load_all_hdf5: false
+batch_size: 32
+# Sample-level split (not trajectories): n_tr + n_te <= total N after merge
+n_tr: 8000
+n_te: 2000
+# HDF5 dataset names (defaults match common Darcy dumps)
+key_nu: nu
+key_tensor: tensor
+key_x_coord: x-coordinate
+key_y_coord: y-coordinate
+# Parse beta from filename → batch["params"] shape (B, 1); also see append_beta_channel
+include_beta: true
+# Constant beta plane as ``batch["x_aux"]`` (FM stacks it after x_τ). ``batch["params"]`` is separate (e.g. for FiLM); use either or both depending on conditioning.
+append_beta_channel: true
+# If true, raise when beta cannot be parsed (recommended for single-file runs without beta in name only if you need params)
+require_beta_in_filename: false

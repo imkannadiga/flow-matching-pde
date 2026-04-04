@@ -135,6 +135,10 @@ class DefaultDataProcessor(DataProcessor):
         if "params" in data_dict and torch.is_tensor(data_dict["params"]):
             data_dict["params"] = data_dict["params"].to(self.device)
 
+        for opt in ("x_aux", "channel_mins", "channel_maxs"):
+            if opt in data_dict and torch.is_tensor(data_dict[opt]):
+                data_dict[opt] = data_dict[opt].to(self.device)
+
         if (
             self.param_keys
             and "metadata" in data_dict

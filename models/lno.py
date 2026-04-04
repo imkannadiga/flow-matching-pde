@@ -27,6 +27,7 @@ class LFNO(PDEModel):
         disco_layers=True,
         coord_channels=0,
         film_param_dim=0,
+        out_channels=None,
         **kwargs,
     ):
         super().__init__()
@@ -39,6 +40,9 @@ class LFNO(PDEModel):
 
         self.t_scaling = t_scaling
         self.vis_channels = int(vis_channels)
+        self.out_channels = (
+            int(out_channels) if out_channels is not None else self.vis_channels
+        )
         self.coord_channels = int(coord_channels)
         n_modes = (modes,) * x_dim
         spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
@@ -50,7 +54,7 @@ class LFNO(PDEModel):
         self.model = _LocalNO(
             n_modes=n_modes,
             in_channels=in_channels,
-            out_channels=vis_channels,
+            out_channels=self.out_channels,
             hidden_channels=hidden_channels,
             default_in_shape=list(default_in_shape),
             disco_kernel_shape=dks,
@@ -58,7 +62,7 @@ class LFNO(PDEModel):
             **kwargs,
         )
         fpd = int(film_param_dim) if film_param_dim else 0
-        self.film = FiLMLayer(fpd, vis_channels) if fpd > 0 else None
+        self.film = FiLMLayer(fpd, self.out_channels) if fpd > 0 else None
 
     def forward(self, t, u, coords=None, params=None):
         t = t / self.t_scaling

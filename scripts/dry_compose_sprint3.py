@@ -11,13 +11,17 @@ import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from hydra.utils import instantiate
+
 _REPO = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(_REPO))
+
+from training.model_channels import patch_model_config_io  # noqa: E402
 
 
 def main() -> int:
     os.environ.setdefault("PROJECT_ROOT", str(_REPO))
     os.chdir(_REPO)
-    sys.path.insert(0, str(_REPO))
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(version_base=None, config_dir=str(_REPO / "configs")):
@@ -32,8 +36,10 @@ def main() -> int:
                     config_name="train",
                     overrides=[f"conditioning={cond}", f"model={m}"] + extra,
                 )
-                model = instantiate(cfg.model)
                 x = torch.randn(2, 1 + (2 if cond != "level0" else 0), 64, 64)
+                y_template = torch.randn(2, 1, 64, 64)
+                patch_model_config_io(cfg.model, x, y_template)
+                model = instantiate(cfg.model)
                 t = torch.zeros(2)
                 kw: dict = {"t": t, "u": x}
                 if cond == "level2":
@@ -45,8 +51,10 @@ def main() -> int:
                     config_name="train",
                     overrides=[f"conditioning={cond}", "model=lno"] + extra,
                 )
-                model = instantiate(cfg.model)
                 x = torch.randn(2, 1 + (2 if cond != "level0" else 0), 64, 64)
+                y_template = torch.randn(2, 1, 64, 64)
+                patch_model_config_io(cfg.model, x, y_template)
+                model = instantiate(cfg.model)
                 t = torch.zeros(2)
                 kw = {"t": t, "u": x}
                 if cond == "level2":

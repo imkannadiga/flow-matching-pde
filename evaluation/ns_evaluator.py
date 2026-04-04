@@ -1,5 +1,5 @@
 import os
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import torch
 from matplotlib import pyplot as plt
 from hydra.utils import instantiate
@@ -15,6 +15,7 @@ from evaluation.eval_utils import (
 from data.navier_stokes import NSDataModule
 from data.navier_stokes_fm import NSFMDataModule
 from pathlib import Path
+from training.model_channels import infer_model_shapes_from_data
 
 class NSEvaluator(BaseEvaluator):
     def __init__(self, cfg: DictConfig):
@@ -27,6 +28,10 @@ class NSEvaluator(BaseEvaluator):
         self.cfg = cfg
         self.device = torch.device(cfg.eval.device if hasattr(cfg.eval, 'device') else 'cuda' if torch.cuda.is_available() else 'cpu')
         
+        if OmegaConf.select(cfg, "data") is not None:
+            _dm = instantiate(cfg.data)
+            _tl, _ = _dm.get_dataloaders()
+            infer_model_shapes_from_data(cfg, self.device, train_loader=_tl)
         # Load model
         self.model = instantiate(cfg.model)
         state_dict_path = cfg.eval.state_dict_path if hasattr(cfg.eval, 'state_dict_path') else cfg.train.save_path

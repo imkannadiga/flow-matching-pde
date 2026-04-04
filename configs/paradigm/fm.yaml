@@ -12,3 +12,7 @@ pre_train_processor:
   domain_bounds: ${conditioning.domain_bounds}
   film_params: ${conditioning.film_params}
   param_keys: ${conditioning.param_keys}
+  # After building x_τ (or noisy x), concat optional batch keys onto u: x_aux, channel bounds, expanded params.
+  stack_x_aux: true
+  stack_channel_bounds: true
+  stack_params_into_u: true

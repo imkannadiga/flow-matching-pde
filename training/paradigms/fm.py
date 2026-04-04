@@ -13,6 +13,7 @@ from __future__ import annotations
 import torch
 
 from training.data_processors import DefaultDataProcessor
+from training.input_conditioning import stack_additional_input_channels
 from util.util import make_grid, reshape_for_batchwise
 
 
@@ -31,6 +32,9 @@ class FMDataProcessor(DefaultDataProcessor):
         film_params: bool = False,
         param_keys=None,
         coord_normalize: str = "neg1_1",
+        stack_x_aux: bool = True,
+        stack_channel_bounds: bool = True,
+        stack_params_into_u: bool = True,
     ):
         super().__init__(
             device,
@@ -40,6 +44,9 @@ class FMDataProcessor(DefaultDataProcessor):
             param_keys=param_keys,
             coord_normalize=coord_normalize,
         )
+        self.stack_x_aux = bool(stack_x_aux)
+        self.stack_channel_bounds = bool(stack_channel_bounds)
+        self.stack_params_into_u = bool(stack_params_into_u)
         self.bridge = bridge
         self.noise_prior = noise_prior
         self.vp = vp
@@ -78,7 +85,14 @@ class FMDataProcessor(DefaultDataProcessor):
         tau_b = reshape_for_batchwise(tau, 1 + len(x1.shape[2:]))
         x_tau = (1.0 - tau_b) * x0 + tau_b * x1
         target = x1 - x0
-        out = {"x": {"u": x_tau, "t": tau}, "y": target}
+        u = stack_additional_input_channels(
+            x_tau,
+            sample,
+            stack_x_aux=self.stack_x_aux,
+            stack_channel_bounds=self.stack_channel_bounds,
+            stack_params_into_u=self.stack_params_into_u,
+        )
+        out = {"x": {"u": u, "t": tau}, "y": target}
         if "params" in sample:
             out["params"] = sample["params"]
         return self.apply_model_conditioning(out)

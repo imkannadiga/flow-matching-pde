@@ -2,7 +2,6 @@ _target_: models.amfno.AMFNO
 
 name: amfno
 modes: 32
-vis_channels: 1
 hidden_channels: 64
 proj_channels: 64
 x_dim: 2

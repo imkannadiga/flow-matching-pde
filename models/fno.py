@@ -45,6 +45,7 @@ class FNO(PDEModel):
         t_scaling=1,
         coord_channels=0,
         film_param_dim=0,
+        out_channels=None,
         **kwargs,
     ):
         super().__init__()
@@ -52,6 +53,9 @@ class FNO(PDEModel):
 
         self.t_scaling = t_scaling
         self.vis_channels = int(vis_channels)
+        self.out_channels = (
+            int(out_channels) if out_channels is not None else self.vis_channels
+        )
         self.coord_channels = int(coord_channels)
         n_modes = (modes,) * x_dim
         # If coord_channels > 0, ``u`` already ends with coord grid channels (no separate posn).
@@ -64,11 +68,11 @@ class FNO(PDEModel):
             hidden_channels=hidden_channels,
             projection_channel_ratio=projection_channel_ratio,
             in_channels=in_channels,
-            out_channels=vis_channels,
+            out_channels=self.out_channels,
             **kwargs,
         )
         fpd = int(film_param_dim) if film_param_dim else 0
-        self.film = FiLMLayer(fpd, vis_channels) if fpd > 0 else None
+        self.film = FiLMLayer(fpd, self.out_channels) if fpd > 0 else None
 
     def forward(self, t, u, coords=None, params=None):
         t = t / self.t_scaling
