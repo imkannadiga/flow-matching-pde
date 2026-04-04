@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import random
+import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -11,6 +13,39 @@ from typing import Union
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+
+_WANDB_RUN_ID_MAX_LEN = 128
+
+
+def _wandb_sanitize_run_id(s: str) -> str:
+    """W&B run ids allow alphanumeric, hyphen, underscore; cap length."""
+    out = re.sub(r"[^a-zA-Z0-9_-]", "_", s.strip())
+    return out[:_WANDB_RUN_ID_MAX_LEN] if len(out) > _WANDB_RUN_ID_MAX_LEN else out
+
+
+def wandb_run_id(cfg: DictConfig) -> str:
+    """
+    Return a unique W&B run id for this process.
+
+    When unset, prefers Hydra's ``job.id`` (distinct for every ``--multirun`` job).
+    Passing this explicitly to ``wandb.init(id=...)`` prevents all subprocesses from
+    reusing the same ``WANDB_RUN_ID`` inherited from the parent shell/CI/IDE, which
+    would log every task into a single run.
+    """
+    from hydra.core.hydra_config import HydraConfig
+
+    rid = OmegaConf.select(cfg, "wandb.run_id")
+    if rid is not None:
+        s = str(rid).strip()
+        if s and s.lower() not in ("null", "~", "none"):
+            return _wandb_sanitize_run_id(s)
+
+    if HydraConfig.initialized():
+        jid = OmegaConf.select(HydraConfig.get(), "job.id", default=None)
+        if jid is not None and str(jid).strip():
+            return _wandb_sanitize_run_id(str(jid))
+
+    return _wandb_sanitize_run_id(uuid.uuid4().hex)
 
 
 def set_seed(seed: int) -> None:

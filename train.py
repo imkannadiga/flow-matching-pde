@@ -11,7 +11,13 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from util.reproducibility import save_config_hash, set_seed, wandb_group, wandb_run_name
+from util.reproducibility import (
+    save_config_hash,
+    set_seed,
+    wandb_group,
+    wandb_run_id,
+    wandb_run_name,
+)
 from training.model_channels import infer_model_shapes_from_data
 
 
@@ -60,9 +66,11 @@ def main(cfg: DictConfig):
         wb_kwargs = dict(
             project=cfg.wandb.project,
             entity=cfg.wandb.entity,
+            id=wandb_run_id(cfg),
             name=wandb_run_name(cfg),
             config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
             mode=cfg.wandb.mode,
+            resume="never",
         )
         _grp = wandb_group(cfg)
         if _grp is not None:
