@@ -1,3 +1,4 @@
+accelerate
 gdown
 gpytorch
 h5py

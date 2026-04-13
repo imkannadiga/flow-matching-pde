@@ -6,10 +6,8 @@ import warnings
 
 import torch
 from tqdm import tqdm
-from torch.cuda import amp
 from torch import nn
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
+from accelerate import Accelerator
 # Only import wandb and use if installed
 wandb_available = False
 try:
@@ -18,7 +16,6 @@ try:
 except ModuleNotFoundError:
     wandb_available = False
 
-import neuralop.mpu.comm as comm
 from neuralop.losses import LpLoss
 from .training_state import load_training_state, save_training_state
 
@@ -90,6 +87,7 @@ class Trainer:
         use_distributed: bool=False,
         verbose: bool=False,
         gradient_accumulation_steps: int = 1,
+        accelerator: Accelerator=None,
         **kwargs
     ):
         """
@@ -105,15 +103,8 @@ class Trainer:
         self.log_output = log_output
         self.verbose = verbose
         self.use_distributed = use_distributed
-        self.device = device
-        # handle autocast device
-        if isinstance(self.device, torch.device):
-            self.autocast_device_type = self.device.type
-        else:
-            if "cuda" in self.device:
-                self.autocast_device_type = "cuda"
-            else:
-                self.autocast_device_type = "cpu"
+        self.accelerator = accelerator if accelerator is not None else Accelerator()
+        self.device = self.accelerator.device
         self.mixed_precision = mixed_precision
         self.data_processor = pre_train_processor
         ga = int(gradient_accumulation_steps)
@@ -125,10 +116,8 @@ class Trainer:
         self.start_epoch = 0
 
     def _progress_bar_enabled(self) -> bool:
-        """Use tqdm only on a single process (rank 0) under distributed training."""
-        if not self.use_distributed:
-            return True
-        return comm.get_local_rank() == 0
+        """Use tqdm only on the global main process."""
+        return self.accelerator.is_main_process
 
     def train(
         self,
@@ -234,10 +223,6 @@ class Trainer:
         # Load model and data_processor to device
         self.model = self.model.to(self.device)
 
-        if self.use_distributed and dist.is_initialized():
-            device_id = dist.get_rank()
-            self.model = DDP(self.model, device_ids=[device_id], output_device=device_id)
-
         if self.data_processor is not None:
             self.data_processor = self.data_processor.to(self.device)
         
@@ -254,10 +239,11 @@ class Trainer:
             self.save_every = None
 
         if self.verbose:
-            print(f'Training on {len(train_loader.dataset)} samples')
-            print(f'Testing on {[len(loader.dataset) for loader in test_loaders.values()]} samples'
-                  f'         on resolutions {[name for name in test_loaders]}.')
-            sys.stdout.flush()
+            if self.accelerator.is_main_process:
+                print(f'Training on {len(train_loader.dataset)} samples')
+                print(f'Testing on {[len(loader.dataset) for loader in test_loaders.values()]} samples'
+                      f'         on resolutions {[name for name in test_loaders]}.')
+                sys.stdout.flush()
         
         for epoch in range(self.start_epoch, self.n_epochs):
             train_err, avg_loss, avg_lasso_loss, epoch_train_time =\
@@ -323,8 +309,6 @@ class Trainer:
         # track number of training examples in batch
         self.n_samples = 0
 
-        accum = self.gradient_accumulation_steps
-        num_batches = len(train_loader)
         self.optimizer.zero_grad(set_to_none=True)
 
         batch_iter = train_loader
@@ -337,12 +321,12 @@ class Trainer:
             )
 
         for idx, sample in enumerate(batch_iter):
-            loss = self._compute_training_loss(idx, sample, training_loss)
-            loss.backward()
-
-            if (idx + 1) % accum == 0 or (idx + 1) == num_batches:
-                self.optimizer.step()
-                self.optimizer.zero_grad(set_to_none=True)
+            with self.accelerator.accumulate(self.model):
+                loss = self._compute_training_loss(idx, sample, training_loss)
+                self.accelerator.backward(loss)
+                if self.accelerator.sync_gradients:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad(set_to_none=True)
 
             train_err += loss.item()
             with torch.no_grad():
@@ -378,7 +362,7 @@ class Trainer:
                 lr=lr,
             )
         # W&B: independent of verbose (otherwise quiet runs only show system charts).
-        if self.wandb_log:
+        if self.wandb_log and self.accelerator.is_main_process:
             train_payload = {
                 "train/train_err": train_err,
                 "train/epoch_time_s": epoch_train_time,
@@ -552,19 +536,19 @@ class Trainer:
             self.n_samples += 1
 
         if self.mixed_precision:
-            with torch.autocast(device_type=self.autocast_device_type):
+            with self.accelerator.autocast():
                 out = self.model(**sample["x"])
         else:
             out = self.model(**sample["x"])
 
-        if self.epoch == 0 and idx == 0 and self.verbose and isinstance(out, torch.Tensor):
+        if self.epoch == 0 and idx == 0 and self.verbose and self.accelerator.is_main_process and isinstance(out, torch.Tensor):
             print(f"Raw outputs of shape {out.shape}")
 
         if self.data_processor is not None:
             out, sample = self.data_processor.postprocess(out, sample)
 
         if self.mixed_precision:
-            with torch.autocast(device_type=self.autocast_device_type):
+            with self.accelerator.autocast():
                 loss = training_loss(out, sample["y"])
         else:
             loss = training_loss(out, sample["y"])
@@ -578,7 +562,7 @@ class Trainer:
         """Single optimizer update from one batch (full forward, backward, step)."""
         self.optimizer.zero_grad(set_to_none=True)
         loss = self._compute_training_loss(idx, sample, training_loss)
-        loss.backward()
+        self.accelerator.backward(loss)
         self.optimizer.step()
         return loss
     
@@ -733,8 +717,9 @@ class Trainer:
             msg += f", avg_lasso={avg_lasso_loss:.4f}"
         if lr is not None:
             msg += f", lr={lr:g}"
-        print(msg)
-        sys.stdout.flush()
+        if self.accelerator.is_main_process:
+            print(msg)
+            sys.stdout.flush()
 
     def log_training(self, 
             epoch:int,
@@ -777,12 +762,12 @@ class Trainer:
                 continue
             parts.append((metric, v))
 
-        if self.verbose and parts:
+        if self.verbose and parts and self.accelerator.is_main_process:
             msg = "Eval: " + ", ".join(f"{m}={v:.4f}" for m, v in parts)
             print(msg)
             sys.stdout.flush()
 
-        if self.wandb_log and parts:
+        if self.wandb_log and parts and self.accelerator.is_main_process:
             wandb.log(
                 {f"eval/{m}": v for m, v in parts},
                 step=epoch + 1,
@@ -796,9 +781,9 @@ class Trainer:
         """
         if not self.wandb_log:
             return
-        if comm.get_local_rank() != 0:
+        if not self.accelerator.is_main_process:
             return
-        model = self.model.module if hasattr(self.model, "module") else self.model
+        model = self.accelerator.unwrap_model(self.model)
         payload = {}
         with torch.no_grad():
             for name, p in model.named_parameters():
@@ -829,18 +814,19 @@ class Trainer:
         else:
             raise FileNotFoundError("Error: resume_from_dir expects a model\
                                         state dict named model.pt or best_model.pt.")
-        # returns model, loads other modules if provided
-        self.model, self.optimizer, self.scheduler, self.regularizer, resume_epoch =\
+        # Load into the unwrapped module to keep accelerator wrapping intact.
+        model_to_load = self.accelerator.unwrap_model(self.model)
+        _, self.optimizer, self.scheduler, self.regularizer, resume_epoch =\
             load_training_state(save_dir=save_dir, save_name=save_name,
-                                                model=self.model,
-                                                optimizer=self.optimizer,
-                                                regularizer=self.regularizer,
-                                                scheduler=self.scheduler)
+                                model=model_to_load,
+                                optimizer=self.optimizer,
+                                regularizer=self.regularizer,
+                                scheduler=self.scheduler)
 
         if resume_epoch is not None:
             if resume_epoch > self.start_epoch:
                 self.start_epoch = resume_epoch
-                if self.verbose:
+                if self.verbose and self.accelerator.is_main_process:
                     print(f"Trainer resuming from epoch {resume_epoch}")
 
 
@@ -855,14 +841,15 @@ class Trainer:
         save_dir : str | Path
             directory in which to save training state
         """
-        if comm.get_local_rank() == 0:
+        if self.accelerator.is_main_process:
             if self.save_best is not None:
                 save_name = 'best_model'
             else:
                 save_name = "model"
+            model_to_save = self.accelerator.unwrap_model(self.model)
             save_training_state(save_dir=save_dir, 
                                 save_name=save_name,
-                                model=self.model,
+                                model=model_to_save,
                                 optimizer=self.optimizer,
                                 scheduler=self.scheduler,
                                 regularizer=self.regularizer,
@@ -870,5 +857,6 @@ class Trainer:
                                 )
             if self.verbose:
                 print(f"[Rank 0]: saved training state to {save_dir}")
+        self.accelerator.wait_for_everyone()
 
        

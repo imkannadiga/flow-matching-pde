@@ -1,0 +1,8 @@
+defaults:
+  - base
+  - _self_
+
+num_processes: 2
+num_machines: 1
+machine_rank: 0
+main_process_ip: "127.0.0.1"

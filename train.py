@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 
 import hydra
 import torch
+from accelerate import Accelerator
 from hydra.utils import get_original_cwd, instantiate
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -89,9 +90,19 @@ def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: D
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     cfg = _resolve_config(cfg)
+    accelerator_cfg = cfg.accelerate
 
     if "data_path" in cfg.data:
         cfg.data.data_path = _abspath_from_project_root(cfg.data.data_path)
+
+    accelerator = Accelerator(
+        mixed_precision=str(accelerator_cfg.mixed_precision),
+        cpu=bool(accelerator_cfg.cpu),
+        gradient_accumulation_steps=int(cfg.trainer.gradient_accumulation_steps),
+        log_with=accelerator_cfg.log_with,
+        project_dir=str(accelerator_cfg.project_dir),
+        dynamo_backend=accelerator_cfg.dynamo_backend,
+    )
 
     dataset = instantiate(cfg.data)
     train_loader, test_loaders = _build_loaders(cfg, dataset)
@@ -104,10 +115,21 @@ def main(cfg: DictConfig) -> None:
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
     loss = instantiate(cfg.trainer.loss)
 
+    prepared = accelerator.prepare(
+        model,
+        optimizer,
+        scheduler,
+        train_loader,
+        *test_loaders.values(),
+    )
+    model, optimizer, scheduler, train_loader, *prepared_test_values = prepared
+    test_loaders = dict(zip(test_loaders.keys(), prepared_test_values))
+
     trainer = instantiate(
         cfg.trainer,
         model=model,
         pre_train_processor=pre_train_processor,
+        accelerator=accelerator,
     )
 
     metrics = trainer.train(
@@ -121,10 +143,12 @@ def main(cfg: DictConfig) -> None:
         save_dir=cfg.trainer.save_path,
     )
 
-    output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    (output_dir / "resolved_config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True), encoding="utf-8")
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        (output_dir / "resolved_config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True), encoding="utf-8")
 
 
 if __name__ == "__main__":

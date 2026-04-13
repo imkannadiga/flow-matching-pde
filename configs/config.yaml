@@ -3,6 +3,7 @@ defaults:
   - data: darcy
   - model: unet
   - trainer: debug
+  - accelerate: single_gpu
   - wandb: disabled
 
 hydra:

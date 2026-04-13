@@ -90,6 +90,8 @@ flow-matching-pde/
 
 Set `PROJECT_ROOT` to the repository root so data paths resolve. Each run writes `config_hash.txt` and `results.json` under the Hydra output directory, and uses trajectory-level train/test splits (no leakage across trajectories).
 
+Training is `accelerate`-native by default, including single-node single-GPU runs.
+
 **CUDA OOM / large batches:** keep `data.batch_size` at a size that fits in memory, and increase ``trainer.gradient_accumulation_steps`` so each optimizer step uses gradients summed over that many microbatches (effective batch ≈ ``batch_size × gradient_accumulation_steps`` with the default sum-reduction MSE). Optionally set ``trainer.mixed_precision=true`` (autocast) to reduce memory further.
 
 ```bash
@@ -99,6 +101,67 @@ python train.py \
     data=navier_stokes \
     trainer=run \
     wandb=disabled
+```
+
+### Accelerate launch matrix
+
+`data.batch_size` is per-process (per GPU). Effective update batch is:
+
+`data.batch_size * accelerate.num_processes * trainer.gradient_accumulation_steps`
+
+Single GPU (default config path):
+
+```bash
+accelerate launch --num_processes 1 train.py trainer=run accelerate=single_gpu
+```
+
+Single node, multi-GPU:
+
+```bash
+accelerate launch --num_processes 4 train.py trainer=run accelerate=multi_gpu accelerate.num_processes=4
+```
+
+Multi-node, multi-GPU (direct `accelerate launch` on each node):
+
+```bash
+# Node 0
+accelerate launch \
+  --num_machines 2 \
+  --machine_rank 0 \
+  --num_processes 4 \
+  --main_process_ip 10.0.0.1 \
+  --main_process_port 29500 \
+  train.py trainer=run accelerate=multi_node accelerate.machine_rank=0
+
+# Node 1
+accelerate launch \
+  --num_machines 2 \
+  --machine_rank 1 \
+  --num_processes 4 \
+  --main_process_ip 10.0.0.1 \
+  --main_process_port 29500 \
+  train.py trainer=run accelerate=multi_node accelerate.machine_rank=1
+```
+
+Multi-node with node-rank launcher (`launch_train.py`):
+
+```bash
+# Same command template on each node; only --node-id changes.
+python launch_train.py \
+  --node-id 0 \
+  --num-machines 2 \
+  --num-processes 4 \
+  --main-process-ip 10.0.0.1 \
+  --main-process-port 29500 \
+  -- trainer=run accelerate=multi_node
+
+python launch_train.py \
+  --node-id 1 \
+  --num-machines 2 \
+  --num-processes 4 \
+  --main-process-ip 10.0.0.1 \
+  --main-process-port 29500 \
+  -- trainer=run accelerate=multi_node
 ```
 
 Optional: `torch-harmonics` is required for **LFNO** (`model=lno`) with the current `neuralop` DISCO stack; FNO and U-Net do not need it.
