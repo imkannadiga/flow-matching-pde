@@ -2,8 +2,9 @@ _target_: data.darcy.DarcyDataModule
 
 name: darcy
 
-data_path: ./data/_data/darcy/2D_DarcyFlow_beta0.1_Train.hdf5
+data_path: ./data/_data/darcy/2D_DarcyFlow_beta1.0_Train.hdf5
 batch_size: 8
 num_workers: 0
 val_fraction: 0.1
 split_seed: 42
+beta: 1.0

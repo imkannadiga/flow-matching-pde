@@ -58,12 +58,32 @@ def _build_loaders(cfg: DictConfig, dataset: Dataset) -> Tuple[DataLoader, Dict[
     return train_loader, {"val": val_loader}
 
 
-def _infer_model_channels(batch: Dict[str, torch.Tensor]) -> Dict[str, int]:
-    x = batch["x"]
-    y = batch["y"]
-    if x.dim() != 4 or y.dim() != 4:
-        raise ValueError("Expected 4D tensors for x and y: [B, C, H, W].")
-    return {"in_channels": int(x.shape[1]), "vis_channels": int(x.shape[1]), "out_channels": int(y.shape[1])}
+def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: Dict[str, torch.Tensor]) -> Dict[str, int]:
+    """Infer model channel sizes from the batch shape after processor preprocessing."""
+    y = processed_batch["y"]
+    if y.dim() != 4:
+        raise ValueError("Expected processed y to be 4D: [B, C, H, W].")
+
+    x_processed = processed_batch["x"]
+    if isinstance(x_processed, dict):
+        if "u" not in x_processed:
+            raise ValueError("Expected processed x dict to contain key 'u'.")
+        u = x_processed["u"]
+        if u.dim() != 4:
+            raise ValueError("Expected processed x['u'] to be 4D: [B, C, H, W].")
+        in_channels = int(u.shape[1])
+    else:
+        if x_processed.dim() != 4:
+            raise ValueError("Expected processed x to be 4D: [B, C, H, W].")
+        in_channels = int(x_processed.shape[1])
+
+    # Keep backward compatibility for models that still consume in/vis channels.
+    if "x" not in raw_batch or not torch.is_tensor(raw_batch["x"]) or raw_batch["x"].dim() != 4:
+        vis_channels = in_channels
+    else:
+        vis_channels = int(raw_batch["x"].shape[1])
+
+    return {"in_channels": in_channels, "vis_channels": vis_channels, "out_channels": int(y.shape[1])}
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
@@ -75,10 +95,10 @@ def main(cfg: DictConfig) -> None:
 
     dataset = instantiate(cfg.data)
     train_loader, test_loaders = _build_loaders(cfg, dataset)
-    first_batch = next(iter(train_loader))
-    inferred = _infer_model_channels(first_batch)
-
     pre_train_processor = instantiate(cfg.trainer.pre_train_processor)
+    first_batch = next(iter(train_loader))
+    processed_first_batch = pre_train_processor.preprocess(dict(first_batch))
+    inferred = _infer_model_channels(first_batch, processed_first_batch)
     model = instantiate(cfg.model, **inferred)
     optimizer = instantiate(cfg.trainer.optimizer)(model.parameters())
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)

@@ -86,7 +86,7 @@ class UNet(PDEModel):
 
         self.out_conv = nn.Conv2d(base_channels, out_channels, 1)
 
-    def forward(self, t, u, coords=None, params=None):
+    def forward(self, t, u, coords=None, params=None, **kwargs):
         t = t / self.t_scaling
         B, _, H, W = u.shape
 

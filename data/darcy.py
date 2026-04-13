@@ -3,7 +3,7 @@ import h5py
 import torch
 
 class DarcyDataModule(BaseDataModule):
-    def __init__(self, data_path, beta=None, append_beta_channel=True):
+    def __init__(self, data_path, beta=None, append_beta_channel=True, **kwargs):
         """
         Args:
             data_path: Path to a single Darcy HDF5 file.

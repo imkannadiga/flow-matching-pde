@@ -3,8 +3,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 
-from data.coords import make_coord_grid
-
 
 class DataProcessor(torch.nn.Module, metaclass=ABCMeta):
     def __init__(self):
