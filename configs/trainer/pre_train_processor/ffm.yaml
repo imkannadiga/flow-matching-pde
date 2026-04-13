@@ -1,8 +1,5 @@
-_target_: training.paradigms.fm.FMDataProcessor
+_target_: training.data_processors.FlowMatchingProcessor
 device: cuda
-bridge: true
-noise_prior: gaussian
-kernel_length: 0.001
-kernel_variance: 1.0
-vp: false
-sigma_min: 1e-4
+append_coords: false
+film_params: false
+coord_normalize: neg1_1

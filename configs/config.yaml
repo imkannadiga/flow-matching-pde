@@ -1,12 +1,10 @@
 defaults:
   - _self_
-  - task: fno-ns
-  - data: navier_stokes
-  - model: fno
-  - train: debug
-  - eval: base
+  - data: darcy
+  - model: unet
+  - trainer: debug
   - wandb: disabled
 
 hydra:
   run:
-    dir: runs/${task.name}-${now:%Y-%m-%d_%H-%M-%S}
+    dir: runs/${data.name}-${model.name}-${now:%Y-%m-%d_%H-%M-%S}

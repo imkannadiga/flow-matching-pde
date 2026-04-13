@@ -1,0 +1,2 @@
+- trainer.n_epochs=1
+- trainer.eval_interval=1

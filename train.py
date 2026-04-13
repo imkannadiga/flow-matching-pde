@@ -1,131 +1,110 @@
+from __future__ import annotations
+
 import json
-import warnings
 from pathlib import Path
+from typing import Dict, Tuple
 
 import hydra
 import torch
-
-import models  # noqa: F401 — applies torch.empty / tltorch compat before neuralop loads
-
-from hydra.core.hydra_config import HydraConfig
-from hydra.utils import instantiate
+from hydra.utils import get_original_cwd, instantiate
 from omegaconf import DictConfig, OmegaConf
-
-from util.reproducibility import (
-    save_config_hash,
-    set_seed,
-    wandb_group,
-    wandb_run_id,
-    wandb_run_name,
-)
-from training.model_channels import infer_model_shapes_from_data
+from torch.utils.data import DataLoader, Dataset, random_split
 
 
-@hydra.main(config_path="configs", config_name="train", version_base=None)
-def main(cfg: DictConfig):
-    run_dir = Path(HydraConfig.get().runtime.output_dir)
-    set_seed(int(cfg.seed))
-    config_hash = save_config_hash(cfg, run_dir)
 
-    device = torch.device(cfg.trainer.device)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        device = torch.device("cpu")
+def _abspath_from_project_root(path_like: str) -> str:
+    path = Path(path_like)
+    if path.is_absolute():
+        return str(path)
+    return str(Path(get_original_cwd()) / path)
 
-    data = instantiate(cfg.data)
-    train_loader, test_loader = data.get_dataloaders()
 
-    infer_model_shapes_from_data(cfg, device, train_loader=train_loader)
-    model = instantiate(cfg.model).to(device)
+def _resolve_config(cfg: DictConfig) -> DictConfig:
+    OmegaConf.resolve(cfg)
+    return cfg
 
-    param_count = sum(p.numel() for p in model.parameters())
-    if param_count < 10_000_000 or param_count > 30_000_000:
-        warnings.warn(
-            f"Parameter count {param_count} is outside the suggested 10M–30M band "
-            "for this benchmark (informational only).",
-            stacklevel=1,
-        )
+
+def _build_loaders(cfg: DictConfig, dataset: Dataset) -> Tuple[DataLoader, Dict[str, DataLoader]]:
+    batch_size = int(cfg.data.batch_size)
+    num_workers = int(cfg.data.num_workers)
+    val_fraction = float(cfg.data.val_fraction)
+    split_seed = int(cfg.data.split_seed)
+
+    dataset_len = len(dataset)
+    val_size = int(dataset_len * val_fraction)
+    train_size = dataset_len - val_size
+
+    if val_size > 0:
+        generator = torch.Generator().manual_seed(split_seed)
+        train_set, val_set = random_split(dataset, [train_size, val_size], generator=generator)
+    else:
+        train_set = dataset
+        val_set = dataset
+
+    train_loader = DataLoader(
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+    val_loader = DataLoader(
+        val_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+    return train_loader, {"val": val_loader}
+
+
+def _infer_model_channels(batch: Dict[str, torch.Tensor]) -> Dict[str, int]:
+    x = batch["x"]
+    y = batch["y"]
+    if x.dim() != 4 or y.dim() != 4:
+        raise ValueError("Expected 4D tensors for x and y: [B, C, H, W].")
+    return {"in_channels": int(x.shape[1]), "vis_channels": int(x.shape[1]), "out_channels": int(y.shape[1])}
+
+
+@hydra.main(version_base=None, config_path="configs", config_name="config")
+def main(cfg: DictConfig) -> None:
+    cfg = _resolve_config(cfg)
+
+    if "data_path" in cfg.data:
+        cfg.data.data_path = _abspath_from_project_root(cfg.data.data_path)
+
+    dataset = instantiate(cfg.data)
+    train_loader, test_loaders = _build_loaders(cfg, dataset)
+    first_batch = next(iter(train_loader))
+    inferred = _infer_model_channels(first_batch)
 
     pre_train_processor = instantiate(cfg.trainer.pre_train_processor)
+    model = instantiate(cfg.model, **inferred)
+    optimizer = instantiate(cfg.trainer.optimizer)(model.parameters())
+    scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)
+    loss = instantiate(cfg.trainer.loss)
 
-    pre_train_processor = pre_train_processor.to(device)
-
-    _optimizer = instantiate(cfg.trainer.optimizer)
-    optimizer = _optimizer(params=model.parameters())
-
-    _scheduler = instantiate(cfg.trainer.scheduler)
-    scheduler = _scheduler(optimizer=optimizer)
-
-    loss_fn = instantiate(cfg.trainer.loss)
-    regularizer = (
-        instantiate(cfg.trainer.regularizer) if "regularizer" in cfg.trainer else None
+    trainer = instantiate(
+        cfg.trainer,
+        model=model,
+        pre_train_processor=pre_train_processor,
     )
 
-    if cfg.wandb.get("use_wandb", False):
-        import wandb
-
-        wb_kwargs = dict(
-            project=cfg.wandb.project,
-            entity=cfg.wandb.entity,
-            id=wandb_run_id(cfg),
-            name=wandb_run_name(cfg),
-            config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
-            mode=cfg.wandb.mode,
-            resume="never",
-        )
-        _grp = wandb_group(cfg)
-        if _grp is not None:
-            wb_kwargs["group"] = _grp
-        wandb.init(**wb_kwargs)
-
-    trainer = instantiate(cfg.trainer, model=model)
-
-    epoch_metrics = trainer.train(
+    metrics = trainer.train(
         train_loader=train_loader,
-        test_loaders={"64x64": test_loader},
+        test_loaders=test_loaders,
         optimizer=optimizer,
         scheduler=scheduler,
-        regularizer=regularizer,
-        training_loss=loss_fn,
-        eval_losses={"mse": loss_fn},
+        training_loss=loss,
+        eval_losses={"loss": loss},
         save_every=cfg.trainer.save_every,
         save_dir=cfg.trainer.save_path,
-        resume_from_dir=cfg.trainer.resume_from_dir
-        if "resume_from_dir" in cfg.trainer
-        else None,
     )
 
-    if cfg.wandb.get("use_wandb", False):
-        import wandb
-
-        wandb.finish()
-
-    def _json_safe(obj):
-        if isinstance(obj, torch.Tensor):
-            return obj.detach().cpu().item() if obj.numel() == 1 else obj.tolist()
-        if isinstance(obj, dict):
-            return {k: _json_safe(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_json_safe(v) for v in obj]
-        return obj
-
-    eth = epoch_metrics.get("epoch_train_time")
-    n_ep = int(cfg.trainer.n_epochs)
-    train_gpu_hours = (
-        float(eth) * n_ep / 3600.0 if eth is not None else None
-    )
-
-    results = {
-        "config_hash": config_hash,
-        "paradigm": OmegaConf.select(cfg, "paradigm.name", default="fm"),
-        "model_name": cfg.model.name,
-        "seed": int(cfg.seed),
-        "param_count": int(param_count),
-        "train_gpu_hours": train_gpu_hours,
-        "final_metrics": _json_safe(epoch_metrics),
-    }
-    (run_dir / "results.json").write_text(
-        json.dumps(results, indent=2) + "\n", encoding="utf-8"
-    )
+    output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    (output_dir / "resolved_config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True), encoding="utf-8")
 
 
 if __name__ == "__main__":

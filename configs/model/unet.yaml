@@ -5,4 +5,4 @@ name: unet
 base_channels: 64
 coord_channels: 0
 t_scaling: 1
-film_param_dim: ${conditioning.param_dim}
+film_param_dim: 0

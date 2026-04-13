@@ -1,9 +1,0 @@
-include_time: true
-
-n_steps: 50
-eval_path: ${hydra:run.dir}/evaluation
-device: cuda
-
-model: ${model}
-train: ${train}
-data: ${data}

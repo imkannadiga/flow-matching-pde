@@ -7,5 +7,5 @@ depth: 8
 num_heads: 6
 mlp_ratio: 4.0
 coord_channels: 0
-film_param_dim: ${conditioning.param_dim}
+film_param_dim: 0
 t_scaling: 1

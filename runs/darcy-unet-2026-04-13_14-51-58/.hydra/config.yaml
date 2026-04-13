@@ -1,0 +1,43 @@
+seed: 42
+data:
+  __target__: data.darcy.DarcyDataModule
+  name: darcy
+  data_path: ./data/_data/darcy/2D_DarcyFlow_beta0.1_Train.hdf5
+model:
+  _target_: models.unet.UNet
+  name: unet
+  base_channels: 64
+  coord_channels: 0
+  t_scaling: 1
+  film_param_dim: ${conditioning.param_dim}
+trainer:
+  _target_: training.trainer.Trainer
+  model: ${model}
+  n_epochs: 1
+  wandb_log: ${wandb.use_wandb}
+  device: cuda
+  mixed_precision: false
+  gradient_accumulation_steps: 1
+  eval_interval: 1
+  log_output: true
+  use_distributed: false
+  verbose: true
+  save_every: 10
+  save_path: ${hydra:run.dir}/checkpoints
+  optimizer:
+    _target_: torch.optim.Adam
+    _partial_: true
+    lr: 0.0001
+  scheduler:
+    _target_: torch.optim.lr_scheduler.StepLR
+    _partial_: true
+    step_size: 25
+  pre_train_processor: ${paradigm.pre_train_processor}
+  loss:
+    _target_: torch.nn.MSELoss
+    reduction: sum
+wandb:
+  use_wandb: false
+  mode: disabled
+  project: null
+  entity: null

@@ -1,0 +1,4 @@
+use_wandb: true
+mode: online
+project: ${data.name}
+entity: ${model.name}

@@ -1,8 +1,0 @@
-# Level 0: scalar field only; no explicit coordinates or physical parameters in the batch.
-append_coords: false
-film_params: false
-domain_bounds:
-  - [0.0, 1.0]
-  - [0.0, 1.0]
-param_keys: []
-param_dim: 0

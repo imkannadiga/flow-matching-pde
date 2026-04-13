@@ -24,7 +24,12 @@ scheduler:
 
   step_size: 25
 
-pre_train_processor: ${paradigm.pre_train_processor}
+pre_train_processor:
+  _target_: training.data_processors.FlowMatchingProcessor
+  device: ${trainer.device}
+  append_coords: false
+  film_params: false
+  coord_normalize: neg1_1
 
 loss:
   _target_: torch.nn.MSELoss

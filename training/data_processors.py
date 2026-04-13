@@ -225,3 +225,85 @@ class DefaultDataProcessor(DataProcessor):
     
     def forward(self, x):
         return self.preprocess(x)
+
+class FlowMatchingProcessor(DefaultDataProcessor):
+    """
+    Processor for Flow Matching. 
+    Intercepts the data batch, samples time and noise, calculates the 
+    intermediate state, and prepares the dictionary for the Trainer.
+    """
+    def __init__(
+        self,
+        device,
+        append_coords: bool = False,
+        domain_bounds = None,
+        film_params: bool = False,
+        param_keys = None,
+        coord_normalize: str = "neg1_1",
+    ):
+        # Initialize the parent class to inherit coordinate/FiLM capabilities
+        super().__init__(
+            device=device,
+            append_coords=append_coords,
+            domain_bounds=domain_bounds,
+            film_params=film_params,
+            param_keys=param_keys,
+            coord_normalize=coord_normalize,
+        )
+
+    def preprocess(self, data_dict, batched=True, step=0):
+        """
+        Transforms the dataset output into the Flow Matching trajectory.
+        """
+        # 1. Flexible Key Extraction 
+        # (Supports unified {"conditioning", "target"} or legacy {"x", "y"})
+        if "target" in data_dict:
+            X_target = data_dict.pop("target").to(self.device)
+            C = data_dict.pop("conditioning").to(self.device)
+        else:
+            X_target = data_dict.pop("y").to(self.device)
+            C = data_dict.pop("x").to(self.device)
+
+        B = X_target.shape[0]
+
+        # 2. Flow Matching Mathematics
+        # Sample base distribution (standard Gaussian noise)
+        X_0 = torch.randn_like(X_target)
+        
+        # Sample flow time tau ~ U(0, 1)
+        # We start with shape [B] and unsqueeze to broadcast across spatial dims
+        tau = torch.rand((B,), device=self.device)
+        tau_spatial = tau
+        while tau_spatial.dim() < X_target.dim():
+            tau_spatial = tau_spatial.unsqueeze(-1)
+            
+        # Calculate intermediate state: X_tau = (1 - tau)*X_0 + tau*X_target
+        X_tau = (1 - tau_spatial) * X_0 + tau_spatial * X_target
+        
+        # Calculate target vector field: V = X_target - X_0
+        V_target = X_target - X_0
+
+        # 3. Structure for the Trainer & Model
+        # Notice we use the key "u" for the primary state tensor. 
+        # This triggers the parent class's `apply_model_conditioning` automatically!
+        data_dict["x"] = {
+            "u": X_tau,              # Noisy state (coords will be appended here if append_coords=True)
+            "t": tau,             # 1D time tensor for DiT/UNet time embeddings
+            "cond": C                # Physical conditioning (permeability, previous timestep)
+        }
+        
+        # The Trainer will automatically calculate MSE loss against this target
+        data_dict["y"] = V_target
+
+        # 4. Parent Logic: Append coordinates or FiLM params if requested
+        # data_dict = self.apply_model_conditioning(data_dict)
+
+        return data_dict
+
+    def postprocess(self, output, data_dict, step=0):
+        """
+        During training, Flow Matching just needs the raw predicted velocity field 
+        to compute the MSE against data_dict["y"]. No un-normalizing is strictly 
+        required for the loss computation.
+        """
+        return output, data_dict
