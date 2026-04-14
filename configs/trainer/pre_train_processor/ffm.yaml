@@ -3,3 +3,4 @@ device: cuda
 append_coords: false
 film_params: false
 coord_normalize: neg1_1
+tau_num_points: 100

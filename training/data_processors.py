@@ -238,6 +238,7 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         film_params: bool = False,
         param_keys = None,
         coord_normalize: str = "neg1_1",
+        tau_num_points: int = 100,
     ):
         # Initialize the parent class to inherit coordinate/FiLM capabilities
         super().__init__(
@@ -248,6 +249,23 @@ class FlowMatchingProcessor(DefaultDataProcessor):
             param_keys=param_keys,
             coord_normalize=coord_normalize,
         )
+        if tau_num_points < 2:
+            raise ValueError("tau_num_points must be >= 2")
+        self.tau_num_points = int(tau_num_points)
+        self._tau_points_cache: Optional[Tuple[torch.device, torch.dtype, torch.Tensor]] = None
+
+    def _get_tau_points(self, dtype: torch.dtype) -> torch.Tensor:
+        device = torch.device(self.device)
+        if (
+            self._tau_points_cache is None
+            or self._tau_points_cache[0] != device
+            or self._tau_points_cache[1] != dtype
+        ):
+            tau_points = torch.linspace(
+                0.0, 1.0, steps=self.tau_num_points, device=device, dtype=dtype
+            )
+            self._tau_points_cache = (device, dtype, tau_points)
+        return self._tau_points_cache[2]
 
     def preprocess(self, data_dict, batched=True, step=0):
         """
@@ -268,9 +286,10 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         # Sample base distribution (standard Gaussian noise)
         X_0 = torch.randn_like(X_target)
         
-        # Sample flow time tau ~ U(0, 1)
-        # We start with shape [B] and unsqueeze to broadcast across spatial dims
-        tau = torch.rand((B,), device=self.device)
+        # Sample flow time tau from a discrete uniform grid in [0, 1]
+        tau_points = self._get_tau_points(X_target.dtype)
+        tau_idx = torch.randint(0, self.tau_num_points, (B,), device=self.device)
+        tau = tau_points[tau_idx]
         tau_spatial = tau
         while tau_spatial.dim() < X_target.dim():
             tau_spatial = tau_spatial.unsqueeze(-1)
