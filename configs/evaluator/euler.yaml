@@ -1,0 +1,7 @@
+defaults:
+  - base
+  - _self_
+
+solver:
+  _target_: evaluation.solvers.EulerSolver
+  n_steps: 100

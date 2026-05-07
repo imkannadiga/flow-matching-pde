@@ -1,0 +1,20 @@
+# Shared evaluator defaults. Solver is defined by the concrete evaluator config (euler/rk4/dopri5).
+
+packer:
+  _target_: evaluation.packers.NullPacker
+
+metric_tracker:
+  _target_: evaluation.metrics.CompositeMetricTracker
+  trackers:
+    - _target_: evaluation.metrics.RelativeL2Tracker
+    - _target_: evaluation.metrics.MSETracker
+    - _target_: evaluation.metrics.LinfTracker
+
+sample_store:
+  _target_: evaluation.sample_store.SampleStore
+  n_samples: 16
+  save_dir: ${hydra:runtime.output_dir}
+  rollout_length: null      # null = final prediction only; set to int for rollout storage
+  filename: samples.pt
+
+store_rollout: false        # set true to capture intermediate integration states (FixedStepSolvers only)

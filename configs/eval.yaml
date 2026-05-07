@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - data: darcy
+  - model: unet
+  - evaluator: euler
+  - accelerate: single_gpu
+  - wandb: disabled
+
+# Required: path to the checkpoint directory saved during training.
+# Example: runs/darcy-unet-2024-01-01_12-00-00/checkpoints
+checkpoint_dir: ???
+
+# Stem of the saved model file: <checkpoint_name>_state_dict.pt
+checkpoint_name: model
+
+hydra:
+  run:
+    dir: evals/${data.name}-${model.name}-${now:%Y-%m-%d_%H-%M-%S}
