@@ -73,6 +73,7 @@ class FNO(PDEModel):
             projection_channel_ratio=projection_channel_ratio,
             in_channels=in_channels,
             out_channels=self.out_channels,
+            positional_embedding=None,  # our wrapper already prepends posn+time channels
             **kwargs,
         )
         fpd = int(film_param_dim) if film_param_dim else 0
