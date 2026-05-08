@@ -8,7 +8,6 @@ from pathlib import Path
 import torch
 from torch import nn
 import torch.distributed as dist
-from neuralop.mpu.comm import get_local_rank
 
 
 def load_training_state(save_dir: Union[str, Path], 
@@ -49,7 +48,8 @@ def load_training_state(save_dir: Union[str, Path],
     """
     if not map_location:
         if dist.is_initialized():
-            map_location = {"cuda:0" : f"cuda:{get_local_rank()}"}
+            local_rank = dist.get_rank() % torch.cuda.device_count()
+            map_location = {"cuda:0": f"cuda:{local_rank}"}
 
     if isinstance(save_dir, str):
         save_dir = Path(save_dir)
@@ -64,8 +64,10 @@ def load_training_state(save_dir: Union[str, Path],
     if dist.is_initialized():
         # To minimize CUDA memory overhead during checkpoint loading,
         # load the model to CPU first, then load to GPU instead of mapping from
-        # CUDA:0 to CUDA:DEVICE_ID
-        device_id = get_local_rank()
+        # CUDA:0 to CUDA:DEVICE_ID.
+        # Use modulo so global ranks are mapped to local GPU indices on each node
+        # (e.g. global rank 5 on a 4-GPU node → cuda:1).
+        device_id = dist.get_rank() % torch.cuda.device_count()
         save_pth = save_dir / f"{save_name}_state_dict.pt"
         model.load_state_dict(torch.load(save_pth.absolute().as_posix(), map_location="cpu"))
         model = model.to(device=f"cuda:{device_id}")
