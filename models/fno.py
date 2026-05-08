@@ -75,7 +75,7 @@ class FNO(PDEModel):
         fpd = int(film_param_dim) if film_param_dim else 0
         self.film = FiLMLayer(fpd, self.out_channels) if fpd > 0 else None
 
-    def forward(self, t, u, coords=None, params=None):
+    def forward(self, t, u, coords=None, params=None, **kwargs):
         t = t / self.t_scaling
         batch_size = u.shape[0]
         dims = u.shape[2:]
