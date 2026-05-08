@@ -57,8 +57,10 @@ def main(cfg: DictConfig) -> None:
     cfg = _resolve_config(cfg)
     accelerator_cfg = cfg.accelerate
 
-    if "data_path" in cfg.data:
+    if "data_path" in cfg.data and cfg.data.data_path is not None:
         cfg.data.data_path = _abspath_from_project_root(cfg.data.data_path)
+    if "data_dir" in cfg.data and cfg.data.data_dir is not None:
+        cfg.data.data_dir = _abspath_from_project_root(cfg.data.data_dir)
 
     accelerator = Accelerator(
         mixed_precision=str(accelerator_cfg.mixed_precision),
