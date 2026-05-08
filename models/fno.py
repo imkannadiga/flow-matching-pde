@@ -50,10 +50,13 @@ class FNO(PDEModel):
     ):
         super().__init__()
         kwargs.pop("name", None)
-        kwargs.pop("in_channels", None)  # computed internally from vis_channels; would duplicate the explicit arg
+        # in_channels from train.py reflects X_tau's actual channel count (the state being evolved).
+        # vis_channels reflects raw_batch["x"] (the conditioning C), which has more channels.
+        # Use X_tau's channel count so the model is built for the tensor it actually receives.
+        actual_channels = kwargs.pop("in_channels", None)
 
         self.t_scaling = t_scaling
-        self.vis_channels = int(vis_channels)
+        self.vis_channels = int(actual_channels if actual_channels is not None else vis_channels)
         self.out_channels = (
             int(out_channels) if out_channels is not None else self.vis_channels
         )
