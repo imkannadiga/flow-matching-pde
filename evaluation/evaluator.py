@@ -157,18 +157,22 @@ class FlowMatchingEvaluator:
                 condition, true_target.shape, collect_rollout=collect
             )
 
-            # Gather tensors from all processes before updating metrics
+            # All gather_for_metrics calls must be made by every rank — they are collectives.
+            # Gate only the *use* of gathered data on is_main_process, not the calls themselves.
             if self.accelerator is not None:
                 pred, true_target = self.accelerator.gather_for_metrics((pred, true_target))
+                gathered_cond = (
+                    self.accelerator.gather_for_metrics(condition)
+                    if self.sample_store is not None
+                    else None
+                )
+            else:
+                gathered_cond = condition if self.sample_store is not None else None
 
             self.metrics.update(pred, true_target)
 
             if self.sample_store is not None:
-                is_main = self.accelerator is None or self.accelerator.is_main_process
-                if is_main:
-                    gathered_cond = condition
-                    if self.accelerator is not None:
-                        gathered_cond = self.accelerator.gather_for_metrics(condition)
+                if self.accelerator is None or self.accelerator.is_main_process:
                     self.sample_store.maybe_store(gathered_cond, pred, true_target, rollout)
 
         if self.sample_store is not None:

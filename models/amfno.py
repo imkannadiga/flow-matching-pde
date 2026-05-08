@@ -35,6 +35,7 @@ class AMFNO(PDEModel):
     ):
         super().__init__()
         kwargs.pop("name", None)
+        kwargs.pop("in_channels", None)  # computed internally from vis_channels; would duplicate the explicit arg
         self.t_scaling = t_scaling
         self.vis_channels = int(vis_channels)
         self.out_channels = (
