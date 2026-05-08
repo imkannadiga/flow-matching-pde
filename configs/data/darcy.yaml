@@ -2,9 +2,20 @@ _target_: data.darcy.DarcyDataModule
 
 name: darcy
 
+# Toggle spatial conditioning (multi-file) mode.
+# false → single-file mode using data_path + beta below.
+# true  → multi-file mode using data_dir; appends beta/x/y channels (c_channels=4).
+spatial_conditioning: false
+
+# --- Single-file mode (spatial_conditioning: false) ---
 data_path: ./data/_data/darcy/2D_DarcyFlow_beta1.0_Train.hdf5
+beta: 1.0
+append_beta_channel: true
+
+# --- Multi-file mode (spatial_conditioning: true) ---
+# data_dir: ./data/_data/darcy/
+
 batch_size: 8
 num_workers: 0
 val_fraction: 0.1
 split_seed: 42
-beta: 1.0
