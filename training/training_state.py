@@ -58,7 +58,7 @@ def load_training_state(save_dir: Union[str, Path],
     epoch = None
     manifest_pth = save_dir / "manifest.pt"
     if manifest_pth.exists():
-        manifest = torch.load(manifest_pth)
+        manifest = torch.load(manifest_pth, weights_only=False)
         epoch = manifest.get('epoch')
     
     if dist.is_initialized():
@@ -69,32 +69,32 @@ def load_training_state(save_dir: Union[str, Path],
         # (e.g. global rank 5 on a 4-GPU node → cuda:1).
         device_id = dist.get_rank() % torch.cuda.device_count()
         save_pth = save_dir / f"{save_name}_state_dict.pt"
-        model.load_state_dict(torch.load(save_pth.absolute().as_posix(), map_location="cpu"))
+        model.load_state_dict(torch.load(save_pth.absolute().as_posix(), map_location="cpu", weights_only=False))
         model = model.to(device=f"cuda:{device_id}")
         torch.cuda.empty_cache()
     else:
         save_pth = save_dir / f"{save_name}_state_dict.pt"
-        model.load_state_dict(torch.load(save_pth.absolute().as_posix()))
+        model.load_state_dict(torch.load(save_pth.absolute().as_posix(), weights_only=False))
 
     # load optimizer if state exists
     if optimizer is not None:
         optimizer_pth = save_dir / "optimizer.pt"
         if optimizer_pth.exists():
-            optimizer.load_state_dict(torch.load(optimizer_pth.absolute().as_posix(), map_location=map_location))
+            optimizer.load_state_dict(torch.load(optimizer_pth.absolute().as_posix(), map_location=map_location, weights_only=False))
         else:
             print(f"Warning: requested to load optimizer state, but no saved optimizer state exists in {save_dir}.")
     
     if scheduler is not None:
         scheduler_pth = save_dir / "scheduler.pt"
         if scheduler_pth.exists():
-            scheduler.load_state_dict(torch.load(scheduler_pth.absolute().as_posix(), map_location=map_location))
+            scheduler.load_state_dict(torch.load(scheduler_pth.absolute().as_posix(), map_location=map_location, weights_only=False))
         else:
             print(f"Warning: requested to load scheduler state, but no saved scheduler state exists in {save_dir}.")
     
     if regularizer is not None:
         regularizer_pth = save_dir / "regularizer.pt"
         if regularizer_pth.exists():
-            regularizer.load_state_dict(torch.load(regularizer_pth.absolute().as_posix(), map_location=map_location))
+            regularizer.load_state_dict(torch.load(regularizer_pth.absolute().as_posix(), map_location=map_location, weights_only=False))
         else:
             print(f"Warning: requested to load regularizer state, but no saved regularizer state exists in {save_dir}.")
     
