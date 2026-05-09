@@ -44,13 +44,14 @@ class NullPacker(ConditionPacker):
 
 
 class PhysicalPacker(ConditionPacker):
-    """Concatenates the physical condition along the channel dim: ``u = cat([condition, state])``.
+    """Concatenates the physical condition along the channel dim: ``u = cat([state, condition])``.
 
-    Use for time-variant PDEs or when training was updated to include physical conditioning
-    in the model input. Requires ``condition`` to be non-None.
+    Matches the channel order produced by FlowMatchingProcessor.apply_model_conditioning,
+    which appends the condition after the state: cat([X_tau, C]).
+    Requires ``condition`` to be non-None.
     """
 
     def pack(self, state: Tensor, condition: Optional[Tensor]) -> Tensor:
         if condition is None:
             raise ValueError("PhysicalPacker requires a non-None condition tensor.")
-        return torch.cat([condition, state], dim=1)
+        return torch.cat([state, condition], dim=1)
