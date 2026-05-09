@@ -289,9 +289,14 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         B = X_target.shape[0]
 
         # 2. Flow Matching Mathematics
-        # Sample base distribution (standard Gaussian noise)
-        X_0 = torch.randn_like(X_target)
-        
+        # X_0 must be supplied by the dataset via the "x_0" key
+        if "x_0" not in data_dict:
+            raise KeyError(
+                "FlowMatchingProcessor requires 'x_0' in the data dict. "
+                "Override _make_x0() in your dataset class to provide the physical initial condition."
+            )
+        X_0 = data_dict.pop("x_0").to(self.device)
+
         # Sample flow time tau from a discrete uniform grid in [0, 1]
         tau_points = self._get_tau_points(X_target.dtype)
         tau_idx = torch.randint(0, self.tau_num_points, (B,), device=self.device)
@@ -299,12 +304,12 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         tau_spatial = tau
         while tau_spatial.dim() < X_target.dim():
             tau_spatial = tau_spatial.unsqueeze(-1)
-            
+
         # Calculate intermediate state: X_tau = (1 - tau)*X_0 + tau*X_target
         X_tau = (1 - tau_spatial) * X_0 + tau_spatial * X_target
-        
-        # Calculate target vector field: V = X_target - X_0
-        V_target = X_target - X_0
+
+        # Calculate target vector field: remaining displacement from current state to target
+        V_target = X_target - X_tau
 
         # 3. Structure for the Trainer & Model
         # Notice we use the key "u" for the primary state tensor. 

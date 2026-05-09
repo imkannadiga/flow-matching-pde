@@ -135,6 +135,9 @@ class DarcyDataModule(BaseDataModule):
     def __len__(self) -> int:
         return self.nu.shape[0]
 
+    def _make_x0(self, idx: int, X_target):
+        return torch.zeros_like(X_target)
+
     def _fetch_data_pair(self, idx: int):
         C = self.nu[idx]          # [1, D, D]
         X_target = self.pressure[idx]

@@ -28,6 +28,14 @@ class BaseDataModule(Dataset, ABC):
         """
         pass
 
+    def _make_x0(self, idx: int, X_target):
+        """
+        Return the physical initial condition for this sample.
+        Returning None signals the flow matching processor to fall back to Gaussian noise.
+        Subclasses override this for datasets with a meaningful X_0.
+        """
+        return None
+
     def __getitem__(self, idx):
         """
         The Template Method: Enforces the dictionary structure for the training loop.
@@ -39,7 +47,8 @@ class BaseDataModule(Dataset, ABC):
             C = self.transform(C)
             X_target = self.transform(X_target)
 
-        return {
-            "x": C,
-            "y": X_target
-        }
+        result = {"x": C, "y": X_target}
+        x_0 = self._make_x0(idx, X_target)
+        if x_0 is not None:
+            result["x_0"] = x_0
+        return result
