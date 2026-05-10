@@ -9,3 +9,6 @@ defaults:
 hydra:
   run:
     dir: runs/${data.name}-${model.name}-${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: runs/multirun-${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${data.name}-${model.name}-${hydra.job.num}
