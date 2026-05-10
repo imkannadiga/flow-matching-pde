@@ -2,7 +2,7 @@ _target_: data.swe.SWEDataModule
 
 name: swe
 
-data_path: ./data/_data/swe/swe_train.hdf5
+data_path: ./data/_data/shallow-water/2D_rdb_NA_NA.h5
 
 # Append the physical PDE time (grid/t[t_idx]) as a broadcast spatial channel.
 # This is NOT flow-matching τ — it tells the model its position in the physical
@@ -13,7 +13,7 @@ append_physical_time: true
 normalize_time: true
 
 # Append x- and y-coordinate maps as extra conditioning channels.
-append_coords: false
+append_coords: true
 
 # Load all trajectories into RAM at init time.
 # Set true for smaller datasets; false for large ones (lazy HDF5 reads).
