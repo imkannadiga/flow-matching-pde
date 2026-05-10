@@ -86,17 +86,17 @@ class FlowMatchingEvaluator:
     def generate_single_state(
         self,
         condition: Optional[Tensor],
-        target_shape: tuple,
+        x_0: Tensor,
         collect_rollout: bool = False,
     ) -> tuple[Tensor, Optional[list[Tensor]]]:
-        """Integrate from Gaussian noise (t=0) to a predicted solution (t=1).
+        """Integrate from the physical initial condition (t=0) to a predicted solution (t=1).
 
         Parameters
         ----------
         condition : Tensor or None
             Physical conditioning field [B, C_cond, H, W].
-        target_shape : tuple
-            Shape for the initial noise sample — should match the target tensor shape.
+        x_0 : Tensor
+            Physical initial condition at t=0, supplied by the dataset via ``_make_x0()``.
         collect_rollout : bool
             If True and the solver is a FixedStepSolver, collect and return the
             intermediate state at the start of each step. Ignored for adaptive solvers.
@@ -104,13 +104,11 @@ class FlowMatchingEvaluator:
         Returns
         -------
         final_state : Tensor
-            Predicted solution at t=1, shape ``target_shape``.
+            Predicted solution at t=1, same shape as ``x_0``.
         rollout : list[Tensor] or None
             CPU-side intermediate states if ``collect_rollout=True`` and the solver
             supports step-by-step access, else None.
         """
-        dtype = condition.dtype if condition is not None else torch.float32
-        x_0 = torch.randn(target_shape, device=self.device, dtype=dtype)
         model_fn = self._make_model_fn(condition)
 
         # Step-by-step loop for rollout collection (fixed-step solvers only)
@@ -153,8 +151,15 @@ class FlowMatchingEvaluator:
             condition = batch["x"].to(self.device)
             true_target = batch["y"].to(self.device)
 
+            if "x_0" not in batch:
+                raise KeyError(
+                    "evaluate_dataset requires 'x_0' in each batch. "
+                    "Override _make_x0() in your dataset class to provide the physical initial condition."
+                )
+            x_0 = batch["x_0"].to(self.device)
+
             pred, rollout = self.generate_single_state(
-                condition, true_target.shape, collect_rollout=collect
+                condition, x_0, collect_rollout=collect
             )
 
             # All gather_for_metrics calls must be made by every rank — they are collectives.
