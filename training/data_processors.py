@@ -308,8 +308,10 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         # Calculate intermediate state: X_tau = (1 - tau)*X_0 + tau*X_target
         X_tau = (1 - tau_spatial) * X_0 + tau_spatial * X_target
 
-        # Calculate target vector field: remaining displacement from current state to target
-        V_target = X_target - X_tau
+        # Standard OT-CFM: constant velocity along the linear path X_0 → X_target.
+        # V = X_target - X_0 is independent of tau, so Euler integrates it exactly.
+        # (V = X_target - X_tau would give only ~63% of displacement after 100 steps.)
+        V_target = X_target - X_0
 
         # 3. Structure for the Trainer & Model
         # Notice we use the key "u" for the primary state tensor. 
