@@ -2,7 +2,7 @@ from torch.utils.data import Dataset
 from abc import ABC, abstractmethod
 
 class BaseDataModule(Dataset, ABC):
-    def __init__(self, data_path, transform=None):
+    def __init__(self, data_path, transform=None, eval: bool = False):
         """
         Common initialization for all PDE datasets.
         """
@@ -10,15 +10,11 @@ class BaseDataModule(Dataset, ABC):
 
         self.data_path = data_path
         self.transform = transform
+        self.eval = eval
 
         # Subclasses must populate these during their __init__
-        self.c_channels = None  
+        self.c_channels = None
         self.target_channels = None
-
-    @abstractmethod
-    def __len__(self):
-        """Must return the total number of independent training pairs."""
-        pass
 
     @abstractmethod
     def _fetch_data_pair(self, idx):
@@ -36,11 +32,38 @@ class BaseDataModule(Dataset, ABC):
         """
         return None
 
+    def _trajectory_count(self) -> int:
+        """Number of trajectories. Override in subclasses that support eval mode."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support eval mode. "
+            "Implement _trajectory_count() and _fetch_trajectory()."
+        )
+
+    def _fetch_trajectory(self, idx: int) -> dict:
+        """
+        Return a full trajectory for eval-mode rollout.
+        Must return a dict with keys:
+          'x_0'          [1, H, W]           initial state
+          'conditions'   [T-1, C_extra, H, W] pre-built extra conditioning (no state channel)
+          'targets'      [T-1, C_out, H, W]  ground-truth states at each step
+          'time_schedule'[T-1]               physical time at each step
+        Override in subclasses that support eval mode.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support eval mode. "
+            "Implement _trajectory_count() and _fetch_trajectory()."
+        )
+
+    def __len__(self):
+        if self.eval:
+            return self._trajectory_count()
+        raise NotImplementedError("Subclasses must implement __len__ for training mode.")
+
     def __getitem__(self, idx):
-        """
-        The Template Method: Enforces the dictionary structure for the training loop.
-        Subclasses should NOT override this method.
-        """
+        if self.eval:
+            return self._fetch_trajectory(idx)
+
+        # Training Template Method: enforces the dictionary structure for the training loop.
         C, X_target = self._fetch_data_pair(idx)
 
         if self.transform:

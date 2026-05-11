@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 from pathlib import Path
 
 import hydra
@@ -62,6 +63,13 @@ def main(cfg: DictConfig) -> None:
     if "data_dir" in cfg.data and cfg.data.data_dir is not None:
         cfg.data.data_dir = _abspath_from_project_root(cfg.data.data_dir)
 
+    time_variate = bool(cfg.data.get("time_variate", False))
+
+    # Auto-enable dataset eval mode when running time-variate evaluation.
+    # The user only needs to set time_variate=true; eval=true is implied.
+    if time_variate:
+        OmegaConf.update(cfg, "data.eval", True, merge=True)
+
     accelerator = Accelerator(
         mixed_precision=str(accelerator_cfg.mixed_precision),
         cpu=bool(accelerator_cfg.cpu),
@@ -77,15 +85,23 @@ def main(cfg: DictConfig) -> None:
     eval_loader = _build_eval_loader(cfg, dataset)
 
     # --- Packer-aware channel inference ---
-    # Instantiate the packer first so we can compute the exact in_channels the model will see.
-    # The packer determines how condition + state are combined before the model's first layer.
     packer = instantiate(cfg.evaluator.packer)
     first_batch = next(iter(eval_loader))
-    x_sample = first_batch["x"]   # condition [B, C_cond, H, W]
-    y_sample = first_batch["y"]   # target    [B, C_out,  H, W]
-    dummy_packed = packer.pack(torch.zeros_like(y_sample), x_sample)
-    in_channels = int(dummy_packed.shape[1])
-    out_channels = int(y_sample.shape[1])
+
+    if time_variate:
+        # Batch keys: "x_0", "conditions" [B, T-1, C_extra, H, W], "targets", "time_schedule"
+        x_0_sample   = first_batch["x_0"]               # [B, 1, H, W]
+        cond_sample  = first_batch["conditions"][:, 0]  # [B, C_extra, H, W]
+        full_cond    = torch.cat([x_0_sample, cond_sample], dim=1)
+        dummy_packed = packer.pack(torch.zeros_like(x_0_sample), full_cond)
+        in_channels  = int(dummy_packed.shape[1])
+        out_channels = int(x_0_sample.shape[1])
+    else:
+        x_sample     = first_batch["x"]                 # [B, C_cond, H, W]
+        y_sample     = first_batch["y"]                 # [B, C_out, H, W]
+        dummy_packed = packer.pack(torch.zeros_like(y_sample), x_sample)
+        in_channels  = int(dummy_packed.shape[1])
+        out_channels = int(y_sample.shape[1])
 
     # --- Model ---
     model = instantiate(
@@ -118,6 +134,7 @@ def main(cfg: DictConfig) -> None:
         sample_store=sample_store,
         accelerator=accelerator,
         store_rollout=store_rollout,
+        time_variate=time_variate,
     )
 
     accelerator.print(f"Evaluating on {len(eval_loader.dataset)} samples...")
@@ -126,8 +143,14 @@ def main(cfg: DictConfig) -> None:
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         accelerator.print("\n=== Evaluation Results ===")
-        for k, v in metrics.items():
-            accelerator.print(f"  {k}: {v:.6f}")
+        if time_variate:
+            for k, v in metrics.items():
+                accelerator.print(
+                    f"  {k}: mean={statistics.mean(v):.6f}  steps={len(v)}"
+                )
+        else:
+            for k, v in metrics.items():
+                accelerator.print(f"  {k}: {v:.6f}")
 
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "eval_metrics.json").write_text(

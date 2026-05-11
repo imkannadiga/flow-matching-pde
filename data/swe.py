@@ -2,7 +2,6 @@ from pathlib import Path
 
 import h5py
 import torch
-from torch.utils.data import Dataset
 
 from data.base import BaseDataModule
 
@@ -16,11 +15,18 @@ class SWEDataModule(BaseDataModule):
         XXXX/grid/x      (H,)         float32   x spatial coordinates
         XXXX/grid/y      (W,)         float32   y spatial coordinates
 
-    Training pairs
-    --------------
+    Training mode (eval=False)
+    --------------------------
     Each sample is a trajectory of T=101 snapshots.  We produce N × (T-1)
     independent training pairs, one per consecutive-step transition u(t) → u(t+Δt).
     The flat index maps a scalar idx to a (sample_key, t_idx) tuple.
+
+    Eval mode (eval=True)
+    ---------------------
+    Returns one item per trajectory instead of N×(T-1) pairs.  Each item contains
+    the full trajectory and pre-built extra conditioning tensors for all T-1 steps,
+    enabling the evaluator to perform auto-regressive rollout without knowing the
+    internal channel layout.
 
     Physical time vs flow-matching time
     ------------------------------------
@@ -56,6 +62,7 @@ class SWEDataModule(BaseDataModule):
         normalize_time: bool = True,
         append_coords: bool = False,
         preload: bool = False,
+        eval: bool = False,
         **_kwargs,
     ):
         """
@@ -77,8 +84,12 @@ class SWEDataModule(BaseDataModule):
             requires enough memory (N × T × H × W × 4 bytes for float32).
             If False, opens the HDF5 file on each __getitem__ call (safe for
             multiprocessing DataLoaders; the OS page cache makes repeat reads cheap).
+        eval : bool
+            When True, __len__ returns the number of trajectories and __getitem__
+            returns a full trajectory dict for auto-regressive rollout evaluation.
+            When False (default), returns N×(T-1) consecutive-step training pairs.
         """
-        super().__init__(str(data_path))
+        super().__init__(str(data_path), eval=eval)
 
         self.append_physical_time = append_physical_time
         self.normalize_time = normalize_time
@@ -89,12 +100,12 @@ class SWEDataModule(BaseDataModule):
         # Scan the file: collect keys, read shared grid, build flat index
         # ------------------------------------------------------------------
         with h5py.File(self.data_path, "r") as f:
-            sample_keys: list[str] = sorted(k for k in f.keys())
-            if not sample_keys:
+            self._sample_keys: list[str] = sorted(k for k in f.keys())
+            if not self._sample_keys:
                 raise ValueError(f"No top-level groups found in {data_path}")
 
             # Grid is shared across all samples; read it once from the first sample
-            first = sample_keys[0]
+            first = self._sample_keys[0]
             t_raw = torch.tensor(f[f"{first}/grid/t"][:], dtype=torch.float32)  # [T]
             x_grid = torch.tensor(f[f"{first}/grid/x"][:], dtype=torch.float32)  # [H]
             y_grid = torch.tensor(f[f"{first}/grid/y"][:], dtype=torch.float32)  # [W]
@@ -104,12 +115,12 @@ class SWEDataModule(BaseDataModule):
             # Flat (sample_key, t_idx) index — one entry per consecutive pair
             # Total length = N_samples × (T - 1)
             self._index: list[tuple[str, int]] = [
-                (key, t) for key in sample_keys for t in range(T - 1)
+                (key, t) for key in self._sample_keys for t in range(T - 1)
             ]
 
             if preload:
                 self._cache: dict[str, torch.Tensor] = {}
-                for key in sample_keys:
+                for key in self._sample_keys:
                     # HDF5 layout is (T, H, W, 1) — channel-last
                     arr = f[f"{key}/data"][:]
                     # Convert to PyTorch convention: (T, 1, H, W)
@@ -151,9 +162,7 @@ class SWEDataModule(BaseDataModule):
         Preloaded mode: O(1) dict lookup + slice — no I/O.
         Lazy mode: opens the HDF5 file per call.  Safe for multiprocessing
         because each DataLoader worker is a separate process with its own
-        file descriptor.  Note that __getitem__ calls this twice per sample
-        (once in _fetch_data_pair, once in _make_x0); the OS page cache makes
-        the second read negligible.  If this matters, enable preload=True.
+        file descriptor.
         """
         if self._cache is not None:
             return self._cache[key]
@@ -161,11 +170,40 @@ class SWEDataModule(BaseDataModule):
             arr = f[f"{key}/data"][:]                            # (T, H, W, 1)
         return torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)  # (T, 1, H, W)
 
+    def _build_extra_conditions(self, t_idx: int, H: int, W: int) -> torch.Tensor:
+        """Build the non-state conditioning channels for one physical time step.
+
+        Returns a tensor of shape [C_extra, H, W] containing:
+          ch 0   : broadcast of t_phys scalar → [1, H, W]  (if append_physical_time)
+          ch 1,2 : x_coord, y_coord maps      → [2, H, W]  (if append_coords)
+
+        The state channel (u_current) is intentionally excluded so the evaluator
+        can splice in whatever the model last predicted.  During training,
+        _fetch_data_pair prepends u_current to the output of this method,
+        reconstructing the full C = [state | extra] that the model expects.
+
+        This method is the single source of truth for extra-channel order,
+        ensuring training and eval rollout always produce identical layouts.
+        """
+        parts = []
+        if self.append_physical_time:
+            t_val = self._t_grid[t_idx].item()
+            t_map = torch.full((1, H, W), t_val, dtype=torch.float32)
+            parts.append(t_map)
+        if self.append_coords:
+            parts.append(self._x_coord[:, :H, :W])
+            parts.append(self._y_coord[:, :H, :W])
+        if not parts:
+            return torch.zeros(0, H, W, dtype=torch.float32)
+        return torch.cat(parts, dim=0)
+
     # ------------------------------------------------------------------
-    # BaseDataModule interface
+    # BaseDataModule training interface
     # ------------------------------------------------------------------
 
     def __len__(self) -> int:
+        if self.eval:
+            return self._trajectory_count()
         return len(self._index)
 
     def _fetch_data_pair(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -182,27 +220,15 @@ class SWEDataModule(BaseDataModule):
         """
         key, t_idx = self._index[idx]
         traj = self._load_trajectory(key)   # [T, 1, H, W]
+        _, _, H, W = traj.shape
 
         u_current = traj[t_idx]             # [1, H, W] — state at physical time t
         u_next    = traj[t_idx + 1]         # [1, H, W] — state at t + Δt  (TARGET)
 
         C = u_current
-
-        if self.append_physical_time:
-            # ── Physical PDE time ──────────────────────────────────────────────
-            # This is grid/t[t_idx], a real-world timestamp (e.g. 0.5 s).
-            # Broadcast to [1, H, W] so it slots in alongside spatial channels.
-            #
-            # Do NOT confuse with flow-matching τ ∈ [0,1], which the
-            # FlowMatchingProcessor samples separately and passes to the model
-            # as sample["x"]["t"].  That τ parameterises the generative path;
-            # this t_phys tells the model where it is in the physical simulation.
-            t_phys = self._t_grid[t_idx].item()
-            t_map  = torch.full_like(u_current, t_phys)     # [1, H, W]
-            C = torch.cat([C, t_map], dim=0)                 # [2, H, W]
-
-        if self.append_coords:
-            C = torch.cat([C, self._x_coord, self._y_coord], dim=0)  # [4, H, W]
+        extra = self._build_extra_conditions(t_idx, H, W)
+        if extra.shape[0] > 0:
+            C = torch.cat([C, extra], dim=0)
 
         return C, u_next
 
@@ -216,16 +242,45 @@ class SWEDataModule(BaseDataModule):
         Gaussian cloud.  This means the model only has to learn a small,
         physically-structured correction rather than generating a solution
         from scratch — which is the right inductive bias for PDE time-stepping.
-
-        Contrast with Darcy (static PDE):
-            X_0 = zeros  →  X_1 = pressure field
-        There the flow genuinely generates a solution; there is no prior state.
-
-        Note: u(t) is channel 0 of C (u_current in _fetch_data_pair), so the
-        values returned here exactly match C[0:1].  They are kept as a separate
-        tensor because the base class and FlowMatchingProcessor treat "x_0" and
-        the conditioning "x" as independent inputs.
         """
         key, t_idx = self._index[idx]
         traj = self._load_trajectory(key)   # [T, 1, H, W]
         return traj[t_idx]                  # [1, H, W] — u(t_phys)
+
+    # ------------------------------------------------------------------
+    # BaseDataModule eval interface
+    # ------------------------------------------------------------------
+
+    def _trajectory_count(self) -> int:
+        return len(self._sample_keys)
+
+    def _fetch_trajectory(self, idx: int) -> dict:
+        """Return a full trajectory for auto-regressive rollout evaluation.
+
+        Returns
+        -------
+        dict with keys:
+          'x_0'           [1, H, W]             true initial state u(t=0)
+          'conditions'    [T-1, C_extra, H, W]  extra conditioning per step (no state)
+          'targets'       [T-1, 1, H, W]        ground-truth states u(t=1)..u(t=T-1)
+          'time_schedule' [T-1]                 physical time value at each step
+
+        The evaluator reconstructs the full condition at each rollout step t as:
+            cat([predicted_state, conditions[t]], dim=0)
+        which matches the channel layout produced by _fetch_data_pair during training.
+        """
+        key = self._sample_keys[idx]
+        traj = self._load_trajectory(key)    # [T, 1, H, W]
+        T, _, H, W = traj.shape
+
+        conditions = torch.stack([
+            self._build_extra_conditions(t, H, W)
+            for t in range(T - 1)
+        ])                                   # [T-1, C_extra, H, W]
+
+        return {
+            "x_0":           traj[0],                # [1, H, W]
+            "conditions":    conditions,              # [T-1, C_extra, H, W]
+            "targets":       traj[1:],                # [T-1, 1, H, W]
+            "time_schedule": self._t_grid[:-1].clone(),  # [T-1]
+        }

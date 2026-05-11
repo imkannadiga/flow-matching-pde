@@ -23,3 +23,13 @@ batch_size: 8
 num_workers: 4
 val_fraction: 0.1
 split_seed: 42
+
+# Dataset eval mode: when true, __getitem__ returns full trajectories for
+# auto-regressive rollout instead of individual (x, y) training pairs.
+# Set automatically by evaluate.py when time_variate=true — no need to set manually.
+eval: false
+
+# Signals to the evaluator that this is a time-variant PDE requiring rollout evaluation.
+# When true, evaluate.py activates eval mode and FlowMatchingEvaluator uses
+# _evaluate_rollout instead of the standard one-step path.
+time_variate: true
