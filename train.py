@@ -66,6 +66,8 @@ def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: D
         raise ValueError("Expected processed y to be 4D: [B, C, H, W].")
 
     x_processed = processed_batch["x"]
+    
+    # --- 1. Infer Spatial Channels (u) ---
     if isinstance(x_processed, dict):
         if "u" not in x_processed:
             raise ValueError("Expected processed x dict to contain key 'u'.")
@@ -73,10 +75,20 @@ def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: D
         if u.dim() != 4:
             raise ValueError("Expected processed x['u'] to be 4D: [B, C, H, W].")
         in_channels = int(u.shape[1])
+        
+        # --- NEW: Infer Conditioning Channels ---
+        if "conditioning" in x_processed:
+            cond_tensor = x_processed["conditioning"]
+            # Assuming cond_tensor is [Batch, cond_channels] or [Batch, cond_channels, 1, 1]
+            cond_channels = int(cond_tensor.shape[1])
+        else:
+            cond_channels = 0 # Fallback if no conditioning is present
+            
     else:
         if x_processed.dim() != 4:
             raise ValueError("Expected processed x to be 4D: [B, C, H, W].")
         in_channels = int(x_processed.shape[1])
+        cond_channels = 0
 
     # Keep backward compatibility for models that still consume in/vis channels.
     if "x" not in raw_batch or not torch.is_tensor(raw_batch["x"]) or raw_batch["x"].dim() != 4:
@@ -84,8 +96,13 @@ def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: D
     else:
         vis_channels = int(raw_batch["x"].shape[1])
 
-    return {"in_channels": in_channels, "vis_channels": vis_channels, "out_channels": int(y.shape[1])}
-
+    # Add cond_channels to the returned dictionary
+    return {
+        "in_channels": in_channels, 
+        "vis_channels": vis_channels, 
+        "out_channels": int(y.shape[1]),
+        "cond_channels": cond_channels   # <--- Hydra will now inject this
+    }
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig) -> None:

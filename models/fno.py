@@ -109,11 +109,11 @@ class FNO(PDEModel):
             t = t.unsqueeze(1).float()
             
         # 2. Format Conditioning Parameters
-        if conditioning.dim() == 1:
-            conditioning = conditioning.unsqueeze(1).float()
+        if cond.dim() == 1:
+            cond = cond.unsqueeze(1).float()
             
         # 3. Create unified 1D conditioning vector [Batch, cond_dim]
-        cond_vector = torch.cat([t, conditioning], dim=1).float()
+        cond_vector = torch.cat([t, cond], dim=1).float()
         
         # 4. Lift the pure spatial state 'u'
         x = self.p(u)

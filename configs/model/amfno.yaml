@@ -1,13 +1,15 @@
 _target_: models.amfno.AMFNO
 
 name: amfno
-modes: 32
+modes: 16                     # Reduced from 32 for rollout stability
 hidden_channels: 64
 proj_channels: 64
 x_dim: 2
 t_scaling: 1
 coord_channels: 0
-film_param_dim: 0
-param_dim: 2
-context_dim: 8
 separable: true
+
+# --- New Amortized Deep Fusion Parameters ---
+cond_channels: 2              # Raw physical parameters entering the param_encoder
+context_dim: 64               # Size of the rich amortized vector feeding the FiLM layers
+n_layers: 4                   # Number of FNO blocks
