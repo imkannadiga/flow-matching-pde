@@ -187,12 +187,6 @@ class DefaultDataProcessor(DataProcessor):
         u = sample["x"]["u"]
         if u.dim() != 4:
             return sample
-        # Merge physical conditioning (e.g. permeability) into the state tensor and remove
-        # the key so it is not passed as a stray kwarg to the model's forward().
-        if "cond" in sample["x"] and torch.is_tensor(sample["x"]["cond"]):
-            cond = sample["x"].pop("cond")
-            u = torch.cat([u, cond], dim=1)
-            sample["x"]["u"] = u
         b, _, h, w = u.shape
         if self.append_coords:
             coords = self._batched_coord_grid(b, h, w, u.device, u.dtype)
@@ -325,7 +319,7 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         # The Trainer will automatically calculate MSE loss against this target
         data_dict["y"] = V_target
 
-        # 4. Parent Logic: Merge cond into u, append coordinates, or pass FiLM params
+        # 4. Parent Logic: Append coordinates to u, or pass FiLM params
         data_dict = self.apply_model_conditioning(data_dict)
 
         return data_dict

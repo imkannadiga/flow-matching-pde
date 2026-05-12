@@ -112,6 +112,10 @@ def main(cfg: DictConfig) -> None:
     first_batch = next(iter(train_loader))
     processed_first_batch = pre_train_processor.preprocess(dict(first_batch))
     inferred = _infer_model_channels(first_batch, processed_first_batch)
+    accelerator.print(
+        f"Inferred channels — in: {inferred['in_channels']}, "
+        f"out: {inferred['out_channels']}, vis: {inferred['vis_channels']}"
+    )
     model = instantiate(cfg.model, **inferred)
     optimizer = instantiate(cfg.trainer.optimizer)(model.parameters())
     scheduler = instantiate(cfg.trainer.scheduler)(optimizer=optimizer)

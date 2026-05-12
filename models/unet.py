@@ -14,6 +14,7 @@ class UNet(PDEModel):
         out_channels=1,
         base_channels=64,
         coord_channels=0,
+        cond_channels=0,
         t_scaling=1,
         film_param_dim=0,
         **kwargs,
@@ -23,9 +24,8 @@ class UNet(PDEModel):
         self.t_scaling = t_scaling
         self.field_channels = int(in_channels)
         self.coord_channels = int(coord_channels)
-        # ``u`` is either [B, field_channels, H, W] or, when coords are pre-concatenated,
-        # [B, field_channels + coord_channels, H, W]; time is appended here.
-        enc_in = self.field_channels + self.coord_channels + 1
+        self.cond_channels = int(cond_channels)
+        enc_in = self.field_channels + self.cond_channels + self.coord_channels + 1
         fpd = int(film_param_dim) if film_param_dim else 0
         if fpd > 0:
             chs = [base_channels * m for m in (1, 2, 4, 8, 4, 2, 1)]
@@ -86,7 +86,7 @@ class UNet(PDEModel):
 
         self.out_conv = nn.Conv2d(base_channels, out_channels, 1)
 
-    def forward(self, t, u, coords=None, params=None, **kwargs):
+    def forward(self, t, u, cond=None, coords=None, params=None, **kwargs):
         t = t / self.t_scaling
         B, _, H, W = u.shape
 
@@ -111,6 +111,9 @@ class UNet(PDEModel):
                 )
         else:
             x_in = u
+
+        if cond is not None:
+            x_in = torch.cat([x_in, cond], dim=1)
 
         if t.dim() == 0:
             t = t.unsqueeze(0).expand(B)

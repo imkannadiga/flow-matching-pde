@@ -1,80 +1,127 @@
 import torch
-from neuralop.models import FNO as _FNO
-
+import torch.nn as nn
+import torch.nn.functional as F
 from models.base import PDEModel
-from models.film import FiLMLayer
 
-"""
-Time-conditioned FNO: conditioning channels and time are concatenated into the input.
-Spatial coordinates are not injected here; if needed they should be included in the
-conditioning tensor C upstream (via spatial_conditioning=true in the data config).
-"""
+class FiLMLayer(nn.Module):
+    def __init__(self, cond_dim, num_features):
+        super().__init__()
+        # Takes the 1D conditioning vector and outputs scale and shift for the spatial channels
+        self.net = nn.Sequential(
+            nn.Linear(cond_dim, num_features),
+            nn.SiLU(),
+            nn.Linear(num_features, num_features * 2)
+        )
 
+    def forward(self, x, cond):
+        out = self.net(cond)
+        scale, shift = out.chunk(2, dim=1)
+        # Reshape to broadcast across the spatial dimensions (B, C, 1, 1)
+        scale = scale.view(scale.shape[0], scale.shape[1], 1, 1)
+        shift = shift.view(shift.shape[0], shift.shape[1], 1, 1)
+        return x * (1 + scale) + shift
 
-def t_allhot(t, like_u: torch.Tensor) -> torch.Tensor:
-    """Broadcast per-batch time to ``[B, 1, *spatial]`` matching ``like_u`` (any channel count)."""
-    batch_size = like_u.shape[0]
-    dim = like_u.shape[2:]
-    t = t.to(device=like_u.device, dtype=like_u.dtype)
-    if t.dim() == 0:
-        t = t.view(1).expand(batch_size)
-    t = t.reshape(batch_size, *([1] * (1 + len(dim))))
-    return t * torch.ones(batch_size, 1, *dim, device=like_u.device, dtype=like_u.dtype)
+class SpectralConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, modes1, modes2):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.modes1 = modes1
+        self.modes2 = modes2
+        scale = (1 / (in_channels * out_channels))
+        self.weights1 = nn.Parameter(scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat))
+        self.weights2 = nn.Parameter(scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat))
 
+    def forward(self, x):
+        batchsize = x.shape[0]
+        x_ft = torch.fft.rfft2(x)
+        out_ft = torch.zeros(batchsize, self.out_channels, x.size(-2), x.size(-1)//2 + 1, dtype=torch.cfloat, device=x.device)
+        out_ft[:, :, :self.modes1, :self.modes2] = torch.einsum("bixy,ioxy->boxy", x_ft[:, :, :self.modes1, :self.modes2], self.weights1)
+        out_ft[:, :, -self.modes1:, :self.modes2] = torch.einsum("bixy,ioxy->boxy", x_ft[:, :, -self.modes1:, :self.modes2], self.weights2)
+        x = torch.fft.irfft2(out_ft, s=(x.size(-2), x.size(-1)))
+        return x
+
+class FNOBlock(nn.Module):
+    def __init__(self, channels, modes1, modes2, cond_dim):
+        super().__init__()
+        self.conv_f = SpectralConv2d(channels, channels, modes1, modes2)
+        self.conv_w = nn.Conv2d(channels, channels, 1)
+        self.film = FiLMLayer(cond_dim, channels)
+
+    def forward(self, x, cond):
+        x_f = self.conv_f(x)
+        x_w = self.conv_w(x)
+        # Modulate the spectral features using the unified conditioning vector
+        x_f = self.film(x_f, cond)
+        return F.gelu(x_f + x_w)
 
 class FNO(PDEModel):
     def __init__(
         self,
         modes,
-        vis_channels,
+        vis_channels,      # Number of pure physical channels in 'u' (e.g., 1 for height)
+        cond_channels,     # Number of conditioning parameters coming from your pipeline
         hidden_channels,
         proj_channels,
-        x_dim=1,
+        x_dim=2,
         t_scaling=1,
-        film_param_dim=0,
         out_channels=None,
         **kwargs,
     ):
         super().__init__()
-        kwargs.pop("name", None)
-        # in_channels is inferred at runtime from the first preprocessed batch (train.py).
-        # It reflects the full concatenated input: X_tau + C channels.
-        actual_channels = kwargs.pop("in_channels", None)
-
         self.t_scaling = t_scaling
-        self.vis_channels = int(actual_channels if actual_channels is not None else vis_channels)
-        self.out_channels = (
-            int(out_channels) if out_channels is not None else self.vis_channels
+        self.vis_channels = int(vis_channels)
+        self.out_channels = int(out_channels) if out_channels is not None else self.vis_channels
+        
+        if isinstance(modes, int):
+            self.modes = (modes, modes)
+        else:
+            self.modes = modes[:2]
+            
+        # Total conditioning dimension = flow time (1) + physical conditioning params
+        self.cond_dim = 1 + cond_channels
+        
+        # Lifting layer purely for the spatial state 'u'
+        self.p = nn.Conv2d(self.vis_channels, hidden_channels, 1)
+        
+        self.blocks = nn.ModuleList([
+            FNOBlock(hidden_channels, self.modes[0], self.modes[1], self.cond_dim)
+            for _ in range(4)
+        ])
+        
+        self.q = nn.Sequential(
+            nn.Conv2d(hidden_channels, proj_channels, 1),
+            nn.GELU(),
+            nn.Conv2d(proj_channels, self.out_channels, 1)
         )
-        n_modes = (modes,) * x_dim
-        in_channels = self.vis_channels + 1  # state+conditioning channels + time
-        projection_channel_ratio = proj_channels / max(hidden_channels, 1)
 
-        self.model = _FNO(
-            n_modes=n_modes,
-            hidden_channels=hidden_channels,
-            projection_channel_ratio=projection_channel_ratio,
-            in_channels=in_channels,
-            out_channels=self.out_channels,
-            positional_embedding=None,
-            **kwargs,
-        )
-        fpd = int(film_param_dim) if film_param_dim else 0
-        self.film = FiLMLayer(fpd, self.out_channels) if fpd > 0 else None
-
-    def forward(self, t, u, params=None):
+    def forward(self, u, cond, t, **kwargs):
+        """
+        u: The pure spatial state [Batch, vis_channels, X, Y]
+        conditioning: The physical parameters [Batch, cond_channels] 
+        t: The flow matching time [Batch] or [Batch, 1]
+        """
+        # 1. Format Flow Time (t)
         t = t / self.t_scaling
-
         if t.dim() == 0 or t.numel() == 1:
-            t = torch.ones(u.shape[0], device=t.device, dtype=t.dtype) * t
-
-        assert t.dim() == 1
-        assert t.shape[0] == u.shape[0]
-
-        t_ch = t_allhot(t, u)
-        u_in = torch.cat((u, t_ch), dim=1).float().contiguous()
-
-        out = self.model(u_in)
-        if self.film is not None and params is not None:
-            out = self.film(out, params)
-        return out
+            t = torch.ones(u.shape[0], 1, device=u.device, dtype=torch.float32) * t
+        elif t.dim() == 1:
+            t = t.unsqueeze(1).float()
+            
+        # 2. Format Conditioning Parameters
+        if conditioning.dim() == 1:
+            conditioning = conditioning.unsqueeze(1).float()
+            
+        # 3. Create unified 1D conditioning vector [Batch, cond_dim]
+        cond_vector = torch.cat([t, conditioning], dim=1).float()
+        
+        # 4. Lift the pure spatial state 'u'
+        x = self.p(u)
+        
+        # 5. Pass through blocks, applying deep conditioning at every step
+        for block in self.blocks:
+            x = block(x, cond_vector)
+            
+        # 6. Project to output channels
+        x = self.q(x)
+        return x
