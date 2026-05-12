@@ -48,17 +48,13 @@ class SpectralConv2d(nn.Module):
         return x
 
 class FNOBlock(nn.Module):
-    def __init__(self, channels, modes1, modes2, cond_dim):
+    def __init__(self, channels, modes1, modes2):
         super().__init__()
         self.conv_f = SpectralConv2d(channels, channels, modes1, modes2)
         self.conv_w = nn.Conv2d(channels, channels, 1)
-        self.film = FiLMLayer(cond_dim, channels)
 
-    def forward(self, x, cond):
-        x_f = self.conv_f(x)
-        x_w = self.conv_w(x)
-        x_f = self.film(x_f, cond)
-        return F.gelu(x_f + x_w)
+    def forward(self, x):
+        return F.gelu(self.conv_f(x) + self.conv_w(x))
 
 class FNO(PDEModel):
     def __init__(
@@ -68,7 +64,6 @@ class FNO(PDEModel):
         cond_channels,
         hidden_channels,
         proj_channels,
-        x_dim=2,
         t_scaling=1,
         coord_channels=0,
         out_channels=None,
@@ -86,16 +81,14 @@ class FNO(PDEModel):
         else:
             self.modes = modes[:2]
             
-        self.cond_dim = 1 + int(cond_channels)
-        
-        # Calculate lifting channels including spatial coordinates
-        spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
-        in_channels = self.vis_channels + spatial_extra
-        
+        self.cond_channels = int(cond_channels)
+        # u + cond channels + 1 time channel (all concatenated spatially)
+        in_channels = self.vis_channels + self.cond_channels + 1
+
         self.p = nn.Conv2d(in_channels, hidden_channels, 1)
-        
+
         self.blocks = nn.ModuleList([
-            FNOBlock(hidden_channels, self.modes[0], self.modes[1], self.cond_dim)
+            FNOBlock(hidden_channels, self.modes[0], self.modes[1])
             for _ in range(n_layers)
         ])
         
@@ -106,40 +99,16 @@ class FNO(PDEModel):
         )
 
     def forward(self, u, cond, t):
-        batch_size = u.shape[0]
-        dims = u.shape[2:]
+        B, _, H, W = u.shape
 
-        # 1. Format Flow Time (t)
         t = t / self.t_scaling
         if t.dim() == 0 or t.numel() == 1:
-            t = torch.ones(batch_size, 1, device=u.device, dtype=torch.float32) * t
-        elif t.dim() == 1:
-            t = t.unsqueeze(1).float()
-            
-        # 2. Format Conditioning Parameters
-        if cond.dim() == 4:
-            cond = cond.mean(dim=[-1, -2])
-        elif cond.dim() == 1:
-            cond = cond.unsqueeze(1)
-            
-        # 3. Create unified 1D conditioning vector
-        cond_vector = torch.cat([t, cond], dim=1).float()
+            t = t.expand(B)
+        t_ch = t.view(B, 1, 1, 1).expand(-1, 1, H, W)
 
-        # 4. Format Pure Spatial Input (Adding Positional Embeddings)
-        if self.coord_channels > 0:
-            if u.shape[1] != self.vis_channels + self.coord_channels:
-                raise ValueError(f"Expected u with {self.vis_channels + self.coord_channels} channels.")
-            u_in = u.float().contiguous()
-        else:
-            posn = make_posn_embed(batch_size, dims).to(u.device)
-            u_in = torch.cat((u, posn), dim=1).float().contiguous()
-        
-        # 5. Lift the augmented spatial state 'u_in'
+        u_in = torch.cat([u, cond, t_ch], dim=1).float()
+
         x = self.p(u_in)
-        
-        # 6. Pass through blocks with Deep Fusion conditioning
         for block in self.blocks:
-            x = block(x, cond_vector)
-            
-        x = self.q(x)
-        return x
+            x = block(x)
+        return self.q(x)
