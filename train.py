@@ -76,13 +76,10 @@ def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: D
             raise ValueError("Expected processed x['u'] to be 4D: [B, C, H, W].")
         in_channels = int(u.shape[1])
         
-        # --- NEW: Infer Conditioning Channels ---
-        if "conditioning" in x_processed:
-            cond_tensor = x_processed["conditioning"]
-            # Assuming cond_tensor is [Batch, cond_channels] or [Batch, cond_channels, 1, 1]
-            cond_channels = int(cond_tensor.shape[1])
+        if "cond" in x_processed and torch.is_tensor(x_processed["cond"]):
+            cond_channels = int(x_processed["cond"].shape[1])
         else:
-            cond_channels = 0 # Fallback if no conditioning is present
+            cond_channels = 0
             
     else:
         if x_processed.dim() != 4:
@@ -131,6 +128,7 @@ def main(cfg: DictConfig) -> None:
     inferred = _infer_model_channels(first_batch, processed_first_batch)
     accelerator.print(
         f"Inferred channels — in: {inferred['in_channels']}, "
+        f"cond: {inferred['cond_channels']}, "
         f"out: {inferred['out_channels']}, vis: {inferred['vis_channels']}"
     )
     model = instantiate(cfg.model, **inferred)

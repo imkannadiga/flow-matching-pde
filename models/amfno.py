@@ -58,6 +58,7 @@ class AMFNO(PDEModel):
             in_channels=in_channels,
             out_channels=self.out_channels,
             n_layers=n_layers,
+            positional_embedding=None,
             **kwargs,
         )
         
@@ -71,7 +72,8 @@ class AMFNO(PDEModel):
         dims = u.shape[2:]
 
         # 1. Generate Amortized Context Vector
-        ctx = self.param_encoder(cond.float()) # [B, context_dim]
+        cond_vec = cond.mean(dim=[-1, -2]) if cond.dim() == 4 else cond
+        ctx = self.param_encoder(cond_vec.float())  # [B, context_dim]
 
         # 2. Format Time & Unified Vector
         if t.dim() == 0 or t.numel() == 1:
@@ -96,9 +98,9 @@ class AMFNO(PDEModel):
         if hasattr(self.model, 'domain_padding') and self.model.domain_padding is not None:
             x = self.model.domain_padding.pad(x)
             
-        for i, block in enumerate(self.model.fno_blocks):
-            x = block(x)
-            x = self.film_layers[i](x, cond_vector) # Deep Fusion injection
+        for i in range(self.model.n_layers):
+            x = self.model.fno_blocks(x, i)
+            x = self.film_layers[i](x, cond_vector)
             
         if hasattr(self.model, 'domain_padding') and self.model.domain_padding is not None:
             x = self.model.domain_padding.unpad(x)
