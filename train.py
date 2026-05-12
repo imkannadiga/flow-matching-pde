@@ -59,7 +59,7 @@ def _build_loaders(cfg: DictConfig, dataset: Dataset) -> Tuple[DataLoader, Dict[
     return train_loader, {"val": val_loader}
 
 
-def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: Dict[str, torch.Tensor]) -> Dict[str, int]:
+def _infer_model_channels(processed_batch: Dict[str, torch.Tensor]) -> Dict[str, int]:
     """Infer model channel sizes from the batch shape after processor preprocessing."""
     y = processed_batch["y"]
     if y.dim() != 4:
@@ -87,11 +87,7 @@ def _infer_model_channels(raw_batch: Dict[str, torch.Tensor], processed_batch: D
         in_channels = int(x_processed.shape[1])
         cond_channels = 0
 
-    # Keep backward compatibility for models that still consume in/vis channels.
-    if "x" not in raw_batch or not torch.is_tensor(raw_batch["x"]) or raw_batch["x"].dim() != 4:
-        vis_channels = in_channels
-    else:
-        vis_channels = int(raw_batch["x"].shape[1])
+    vis_channels = in_channels
 
     # Add cond_channels to the returned dictionary
     return {
@@ -125,7 +121,7 @@ def main(cfg: DictConfig) -> None:
     pre_train_processor = instantiate(cfg.trainer.pre_train_processor)
     first_batch = next(iter(train_loader))
     processed_first_batch = pre_train_processor.preprocess(dict(first_batch))
-    inferred = _infer_model_channels(first_batch, processed_first_batch)
+    inferred = _infer_model_channels(processed_first_batch)
     accelerator.print(
         f"Inferred channels — in: {inferred['in_channels']}, "
         f"cond: {inferred['cond_channels']}, "
