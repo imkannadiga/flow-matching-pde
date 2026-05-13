@@ -145,12 +145,13 @@ class SWEDataModule(BaseDataModule):
         self._y_coord = y2d.unsqueeze(0)   # [1, H, W]
 
         # Channel counts — consumed by train.py's _infer_model_channels to
-        # auto-configure in_channels and out_channels on the model
-        state_ch = 1
+        # auto-configure in_channels and out_channels on the model.
+        # u_current is NOT included here: it is supplied as x_0 (flow-matching
+        # starting point) so the model receives it via u=X_tau, not via cond.
         time_ch  = 1 if append_physical_time else 0
         coord_ch = 2 if append_coords else 0
-        self.c_channels     = state_ch + time_ch + coord_ch
-        self.target_channels = state_ch
+        self.c_channels     = time_ch + coord_ch
+        self.target_channels = 1
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -177,10 +178,8 @@ class SWEDataModule(BaseDataModule):
           ch 0   : broadcast of t_phys scalar → [1, H, W]  (if append_physical_time)
           ch 1,2 : x_coord, y_coord maps      → [2, H, W]  (if append_coords)
 
-        The state channel (u_current) is intentionally excluded so the evaluator
-        can splice in whatever the model last predicted.  During training,
-        _fetch_data_pair prepends u_current to the output of this method,
-        reconstructing the full C = [state | extra] that the model expects.
+        The state channel (u_current) is intentionally excluded: it is supplied
+        as X_0 (via _make_x0) and enters the model through u=X_tau, not cond.
 
         This method is the single source of truth for extra-channel order,
         ensuring training and eval rollout always produce identical layouts.
@@ -209,12 +208,14 @@ class SWEDataModule(BaseDataModule):
     def _fetch_data_pair(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return (C, X_target) for a single consecutive-step transition.
 
-        C  [c_channels, H, W]  — conditioning tensor:
-            ch 0       : u(t_phys)      current physical state
-            ch 1       : t_phys map     PHYSICAL PDE time (not flow-matching τ!)
+        C  [c_channels, H, W]  — conditioning tensor (no state channel):
+            ch 0       : t_phys map     PHYSICAL PDE time (not flow-matching τ!)
                          broadcast as a constant spatial map so the model knows
                          its position in the physical trajectory
-            ch 2, 3    : x, y coords    (only if append_coords=True)
+            ch 1, 2    : x, y coords    (only if append_coords=True)
+
+        u(t_phys) is supplied separately via _make_x0 as X_0 (the flow-matching
+        starting point). The model receives it through u=X_tau, not through cond.
 
         X_target  [1, H, W]  — ground-truth next state u(t_phys + Δt).
         """
@@ -222,13 +223,8 @@ class SWEDataModule(BaseDataModule):
         traj = self._load_trajectory(key)   # [T, 1, H, W]
         _, _, H, W = traj.shape
 
-        u_current = traj[t_idx]             # [1, H, W] — state at physical time t
-        u_next    = traj[t_idx + 1]         # [1, H, W] — state at t + Δt  (TARGET)
-
-        C = u_current
-        extra = self._build_extra_conditions(t_idx, H, W)
-        if extra.shape[0] > 0:
-            C = torch.cat([C, extra], dim=0)
+        u_next = traj[t_idx + 1]            # [1, H, W] — state at t + Δt  (TARGET)
+        C = self._build_extra_conditions(t_idx, H, W)   # [c_channels, H, W]
 
         return C, u_next
 

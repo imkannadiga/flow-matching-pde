@@ -102,8 +102,7 @@ class FlowMatchingEvaluator:
             t_tensor = torch.full(
                 (x.shape[0],), t, device=x.device, dtype=x.dtype
             )
-            u = self.packer.pack(x, condition)
-            return self.model(t_tensor, u)
+            return self.model(u=x, cond=condition, t=t_tensor)
         return model_fn
 
     @torch.no_grad()
@@ -222,12 +221,12 @@ class FlowMatchingEvaluator:
         Batches must yield dicts with:
           - ``"x_0"``:          initial state [B, 1, H, W]
           - ``"conditions"``:   extra conditioning per step [B, T-1, C_extra, H, W]
-                                (no state channel — evaluator prepends the prediction)
+                                (physical time map, spatial coords — no state channel)
           - ``"targets"``:      ground-truth states [B, T-1, C_out, H, W]
           - ``"time_schedule"``: physical times [T-1] (unused in computation, stored for reference)
 
-        At each physical step t the evaluator builds:
-            full_condition = cat([current_pred, conditions[:, t]], dim=1)
+        At each physical step t the model receives:
+            u=current_pred, cond=conditions[:, t], t=flow_matching_tau
         which matches the channel layout produced by _fetch_data_pair during training.
         The prediction becomes ``x_0`` for the next ODE integration.
 
@@ -252,9 +251,8 @@ class FlowMatchingEvaluator:
             pred_traj = [current]
 
             for t in range(T_minus_1):
-                cond_t = conditions[:, t]                               # [B, C_extra, H, W]
-                full_condition = torch.cat([current, cond_t], dim=1)   # [B, C_cond, H, W]
-                current, _ = self.generate_single_state(full_condition, current)
+                cond_t = conditions[:, t]                    # [B, C_extra, H, W]
+                current, _ = self.generate_single_state(cond_t, current)
                 pred_traj.append(current)
 
             pred_stack = torch.stack(pred_traj, dim=1)   # [B, T, C_out, H, W]

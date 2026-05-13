@@ -88,10 +88,23 @@ class FNO(PDEModel):
         else:
             self.modes = modes[:2]
             
-        # Unified deep condition dimension: Flow Time (1) + Physical params
+        # FiLM dimension: flow-matching time (1) + encoded cond
         self.cond_dim = 1 + int(cond_channels)
-        
-        # Spatial input channels only (vis_channels + coords)
+
+        # Learned spatial encoder: conv → global pool → [B, cond_channels].
+        # Raw mean-pooling loses spatial structure of fields like ν(x,y).
+        # A conv layer learns which spatial statistics matter before pooling.
+        if cond_channels > 0:
+            self.cond_encoder = nn.Sequential(
+                nn.Conv2d(int(cond_channels), int(cond_channels), kernel_size=3, padding=1),
+                nn.GELU(),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(1),
+            )
+        else:
+            self.cond_encoder = None
+
+        # Spatial input channels: u + pos_embed (or pre-embedded coords)
         spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
         in_channels = self.vis_channels + spatial_extra
 
@@ -112,23 +125,24 @@ class FNO(PDEModel):
         batch_size = u.shape[0]
         dims = u.shape[2:]
 
-        # 1. Format Flow Time (t)
+        # 1. Format flow-matching time → [B, 1]
         t = t / self.t_scaling
         if t.dim() == 0 or t.numel() == 1:
             t = torch.ones(batch_size, 1, device=u.device, dtype=torch.float32) * t
         elif t.dim() == 1:
             t = t.unsqueeze(1).float()
-            
-        # 2. Format Conditioning Parameters (Extracting from spatial grid)
+
+        # 2. Encode spatial cond [B, C, H, W] → [B, C] via learned conv+pool
         if cond.dim() == 4:
-            cond = cond.mean(dim=[-1, -2])
+            cond = self.cond_encoder(cond.float()) if self.cond_encoder is not None \
+                   else cond.mean(dim=[-1, -2])
         elif cond.dim() == 1:
             cond = cond.unsqueeze(1)
-            
-        # 3. Create unified 1D conditioning vector
+
+        # 3. Unified FiLM conditioning vector: [t, encoded_cond]
         cond_vector = torch.cat([t, cond], dim=1).float()
 
-        # 4. Format Pure Spatial Input (Adding Positional Embeddings)
+        # 4. Build spatial input: u + positional embeddings
         if self.coord_channels > 0:
             if u.shape[1] != self.vis_channels + self.coord_channels:
                 raise ValueError(f"Expected u with {self.vis_channels + self.coord_channels} channels.")
@@ -139,8 +153,8 @@ class FNO(PDEModel):
 
         # 5. Lift the spatial state
         x = self.p(u_in)
-        
-        # 6. Pass through blocks with Deep Fusion conditioning
+
+        # 6. Pass through blocks with FiLM conditioning
         for block in self.blocks:
             x = block(x, cond_vector)
             
