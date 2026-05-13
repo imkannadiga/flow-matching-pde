@@ -2,11 +2,11 @@
 
 from abc import abstractmethod
 
-from neuralop.models import base_model
+import torch.nn as nn
 
 
-class PDEModel(base_model.BaseModel):
-    """All models accept optional coordinate and parameter conditioning (Sprint 3 hooks)."""
+class PDEModel(nn.Module):
+    """All models accept optional coordinate and parameter conditioning."""
 
     @abstractmethod
     def forward(self, t, u, coords=None, params=None):
@@ -15,6 +15,6 @@ class PDEModel(base_model.BaseModel):
             t: time tensor [B] or broadcastable scalar tensor
             u: state [B, C, H, W]
             coords: optional [B, n_dim, H, W] normalized spatial grid
-            params: optional physical parameters (e.g. Re, nu); unused until FiLM / metadata
+            params: optional physical parameters (e.g. Re, nu)
         """
         raise NotImplementedError
