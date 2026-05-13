@@ -16,7 +16,20 @@ try:
 except ModuleNotFoundError:
     wandb_available = False
 
-from neuralop.losses import LpLoss
+class LpLoss(nn.Module):
+    """Relative Lp loss over spatial dimensions — drop-in replacement for neuralop.losses.LpLoss."""
+    def __init__(self, d=2, p=2, reduction=True, size_average=True):
+        super().__init__()
+        self.d = d
+        self.p = p
+        self.reduction = "mean" if size_average else "sum"
+
+    def forward(self, x, y):
+        dims = list(range(-self.d, 0))
+        diff = torch.norm(x - y, p=self.p, dim=dims)
+        norm = torch.norm(y,     p=self.p, dim=dims).clamp(min=1e-8)
+        loss = (diff / norm).mean()
+        return loss
 from .training_state import load_training_state, save_training_state
 
 
