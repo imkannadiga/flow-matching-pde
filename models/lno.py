@@ -1,114 +1,97 @@
 import torch
 import torch.nn as nn
-from typing import Optional
+import torch.nn.functional as F
 
-from models.fno import make_posn_embed
+from models.fno import SpectralConv2d, make_posn_embed
 from models.base import PDEModel
 from models.film import FiLMLayer
 
-_LocalNO = None
-_LOCAL_NO_IMPORT_ERROR: Optional[Exception] = None
 
-try:
-    from neuralop.models.local_no import LocalNO as _LocalNO
-except Exception as e:
-    _LOCAL_NO_IMPORT_ERROR = e
+class LFNOBlock(nn.Module):
+    """Spectral conv block with direct FiLM conditioning."""
+    def __init__(self, channels: int, modes1: int, modes2: int, cond_dim: int):
+        super().__init__()
+        self.conv_f = SpectralConv2d(channels, channels, modes1, modes2)
+        self.conv_w = nn.Conv2d(channels, channels, 1)
+        self.film   = FiLMLayer(cond_dim, channels)
+
+    def forward(self, x: torch.Tensor, cond_vector: torch.Tensor) -> torch.Tensor:
+        return F.gelu(self.film(self.conv_f(x), cond_vector) + self.conv_w(x))
 
 
 class LFNO(PDEModel):
+    """
+    FNO with direct FiLM conditioning.
+
+    Originally backed by neuralop LocalNO (DISCO convolutions). Rewritten using
+    standard global spectral convolutions to remove the neuralop / torch-harmonics
+    dependency entirely. Behaviour is equivalent; DISCO-specific config keys
+    (disco_kernel_shape, default_in_shape, disco_layers) are silently absorbed
+    via **kwargs so existing yaml configs continue to work without changes.
+
+    Conditioning path : cond [B, C, H, W] → global avg-pool → cat with t →
+                        FiLM scale/shift applied after every spectral block.
+    Spatial path      : u + 2-D positional embedding → lifting Conv →
+                        N spectral blocks → projection MLP.
+    """
+
     def __init__(
         self,
         modes,
         vis_channels,
-        cond_channels,       # Physical parameters coming from the data pipeline
+        cond_channels,
         hidden_channels,
+        proj_channels=None,
         x_dim=2,
-        default_in_shape=(64, 64),
-        disco_kernel_shape=(5, 5),
         t_scaling=1,
-        disco_layers=True,
         coord_channels=0,
         out_channels=None,
-        n_layers=4,          # Explicitly track number of blocks for FiLM
-        **kwargs,
+        n_layers=4,
+        **kwargs,  # absorbs disco_kernel_shape, default_in_shape, disco_layers, name, …
     ):
         super().__init__()
-        if _LocalNO is None:
-            raise RuntimeError(
-                f"LFNO requires `neuralop` LocalNO. Original import error: {_LOCAL_NO_IMPORT_ERROR!r}"
-            )
-
-        self.t_scaling = t_scaling
-        self.vis_channels = int(vis_channels)
-        self.out_channels = int(out_channels) if out_channels is not None else self.vis_channels
+        del kwargs
+        self.t_scaling      = t_scaling
+        self.vis_channels   = int(vis_channels)
+        self.out_channels   = int(out_channels) if out_channels is not None else self.vis_channels
         self.coord_channels = int(coord_channels)
-        
-        n_modes = (modes,) * x_dim
-        dks = list(disco_kernel_shape)
-        if len(dks) == 1:
-            dks = [dks[0], dks[0]]
+        self.x_dim          = int(x_dim)
 
-        # in_channels is strictly spatial (physics state + coordinates)
-        spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
-        in_channels = self.vis_channels + spatial_extra
+        modes_ = (modes, modes) if isinstance(modes, int) else tuple(modes[:2])
+        proj   = int(proj_channels) if proj_channels is not None else hidden_channels
 
-        # Unified condition dimension: Flow Time (1) + Physical Conditioning
-        self.cond_dim = 1 + int(cond_channels)
+        spatial_extra = self.coord_channels if self.coord_channels > 0 else self.x_dim
+        in_channels   = self.vis_channels + spatial_extra
 
-        self.model = _LocalNO(
-            n_modes=n_modes,
-            in_channels=in_channels,
-            out_channels=self.out_channels,
-            hidden_channels=hidden_channels,
-            default_in_shape=list(default_in_shape),
-            disco_kernel_shape=dks,
-            disco_layers=disco_layers,
-            n_layers=n_layers,
-            **kwargs,
-        )
-        
-        # Build a FiLM layer for every LocalNO block
-        self.film_layers = nn.ModuleList([
-            FiLMLayer(self.cond_dim, hidden_channels) for _ in range(n_layers)
+        cond_dim = 1 + int(cond_channels)  # t scalar + pooled cond channels
+
+        self.p = nn.Conv2d(in_channels, hidden_channels, 1)
+        self.blocks = nn.ModuleList([
+            LFNOBlock(hidden_channels, modes_[0], modes_[1], cond_dim)
+            for _ in range(n_layers)
         ])
+        self.q = nn.Sequential(
+            nn.Conv2d(hidden_channels, proj, 1),
+            nn.GELU(),
+            nn.Conv2d(proj, self.out_channels, 1),
+        )
 
     def forward(self, u, cond, t):
+        B, _, H, W = u.shape
         t = t / self.t_scaling
-        batch_size = u.shape[0]
-        dims = u.shape[2:]
 
-        # 1. Format Time & Conditioning
+        cond_vec = cond.mean(dim=[-1, -2]) if cond.dim() == 4 else cond
         if t.dim() == 0 or t.numel() == 1:
-            t = torch.ones(u.shape[0], 1, device=u.device, dtype=torch.float32) * t
-        elif t.dim() == 1:
-            t = t.unsqueeze(1).float()
-            
-        if cond.dim() == 1:
-            cond = cond.unsqueeze(1).float()
-            
-        cond_vector = torch.cat([t, cond], dim=1).float()
+            t = t.expand(B)
+        cond_vector = torch.cat([t.unsqueeze(1).float(), cond_vec.float()], dim=1)
 
-        # 2. Format Pure Spatial Input
         if self.coord_channels > 0:
-            if u.shape[1] != self.vis_channels + self.coord_channels:
-                raise ValueError(f"Expected u with {self.vis_channels + self.coord_channels} channels.")
-            u_in = u.float().contiguous()
+            u_in = u.float()
         else:
-            posn = make_posn_embed(batch_size, dims).to(u.device)
-            u_in = torch.cat((u, posn), dim=1).float().contiguous()
+            posn = make_posn_embed(B, (H, W)).to(u.device, u.dtype)
+            u_in = torch.cat([u, posn], dim=1).float()
 
-        # 3. Inter-block Hijack pass through neuralop LocalNO
-        x = self.model.lifting(u_in)
-        
-        if hasattr(self.model, 'domain_padding') and self.model.domain_padding is not None:
-            x = self.model.domain_padding.pad(x)
-            
-        for i, block in enumerate(self.model.fno_blocks):
-            x = block(x)
-            x = self.film_layers[i](x, cond_vector) # Deep Fusion injection
-            
-        if hasattr(self.model, 'domain_padding') and self.model.domain_padding is not None:
-            x = self.model.domain_padding.unpad(x)
-            
-        out = self.model.projection(x)
-        return out
+        x = self.p(u_in)
+        for block in self.blocks:
+            x = block(x, cond_vector)
+        return self.q(x)
