@@ -63,7 +63,17 @@ class LFNO(PDEModel):
         spatial_extra = self.coord_channels if self.coord_channels > 0 else self.x_dim
         in_channels   = self.vis_channels + spatial_extra
 
-        cond_dim = 1 + int(cond_channels)  # t scalar + pooled cond channels
+        cond_dim = 1 + int(cond_channels)  # t scalar + encoded cond channels
+
+        if cond_channels > 0:
+            self.cond_encoder = nn.Sequential(
+                nn.Conv2d(int(cond_channels), int(cond_channels), kernel_size=3, padding=1),
+                nn.GELU(),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(1),
+            )
+        else:
+            self.cond_encoder = None
 
         self.p = nn.Conv2d(in_channels, hidden_channels, 1)
         self.blocks = nn.ModuleList([
@@ -80,10 +90,12 @@ class LFNO(PDEModel):
         B, _, H, W = u.shape
         t = t / self.t_scaling
 
-        cond_vec = cond.mean(dim=[-1, -2]) if cond.dim() == 4 else cond
+        if cond.dim() == 4:
+            cond = self.cond_encoder(cond.float()) if self.cond_encoder is not None \
+                   else cond.mean(dim=[-1, -2])
         if t.dim() == 0 or t.numel() == 1:
             t = t.expand(B)
-        cond_vector = torch.cat([t.unsqueeze(1).float(), cond_vec.float()], dim=1)
+        cond_vector = torch.cat([t.unsqueeze(1).float(), cond.float()], dim=1)
 
         if self.coord_channels > 0:
             u_in = u.float()
