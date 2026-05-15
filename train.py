@@ -142,6 +142,22 @@ def main(cfg: DictConfig) -> None:
     model, optimizer, scheduler, train_loader, *prepared_test_values = prepared
     test_loaders = dict(zip(test_loaders.keys(), prepared_test_values))
 
+    if OmegaConf.select(cfg, "wandb.use_wandb", default=False) and accelerator.is_main_process:
+        try:
+            import wandb
+            from util.reproducibility import wandb_run_id, wandb_run_name, wandb_group
+            wandb.init(
+                project=OmegaConf.select(cfg, "wandb.project", default="flow-matching"),
+                name=wandb_run_name(cfg),
+                id=wandb_run_id(cfg),
+                group=wandb_group(cfg),
+                mode=OmegaConf.select(cfg, "wandb.mode", default="online"),
+                config=OmegaConf.to_container(cfg, resolve=True),
+                resume="allow",
+            )
+        except ImportError:
+            pass
+
     trainer = instantiate(
         cfg.trainer,
         model=model,

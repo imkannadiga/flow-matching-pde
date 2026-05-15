@@ -1,4 +1,4 @@
 use_wandb: true
 mode: online
-project: ${data.name}
-entity: ${model.name}
+project: flow-matching
+run_name: ${model.name}-${data.name}
