@@ -1,16 +1,17 @@
 # Flow Matching PDE
 
-A PyTorch implementation for solving PDE surrogates with a flow-matching style training pipeline. The current default dataset is Darcy flow HDF5 data, with multiple model backbones including U-Net, FNO, LNO, ViT, and AM-FNO.
+A PyTorch implementation for solving PDE surrogates with a flow-matching style training pipeline. Supports Darcy flow and Shallow Water Equations (SWE), with multiple model backbones including U-Net, FNO, LNO, ViT, and AM-FNO.
 
 ## Features
 
 - **Flow-Matching Processor**: Uses `FlowMatchingProcessor` in the default trainer config
 - **Multiple Architectures**: Supports U-Net, FNO, LNO, ViT, and AM-FNO
-- **Darcy Dataset**: Pre-configured for Darcy HDF5 (`nu` -> `tensor`) training
+- **Multiple Datasets**: Darcy flow HDF5 and Shallow Water Equations (SWE) with auto-regressive rollout
 - **Flexible Configuration**: Uses Hydra for configuration management
 - **Accelerate by Default**: Single-GPU, multi-GPU, and multi-node launches share one codepath
 - **Experiment Tracking**: Optional Weights & Biases integration
 - **Checkpointing**: Saves model/optimizer/scheduler manifests for resume
+- **Evaluation Pipeline**: ODE solvers (Euler, RK4, Dopri5) with per-step metrics and sample storage
 
 ## Installation
 
@@ -33,32 +34,36 @@ cd flow-matching-pde
 pip install -r requirements.txt
 ```
 
-3. Download data:
-```bash
-# Using Python script
-python download_data.py
+3. Place your HDF5 data files at the paths configured in `configs/data/`:
+   - Darcy: `data/_data/darcy/2D_DarcyFlow_beta1.0_Train.hdf5`
+   - SWE: `data/_data/shallow-water/2D_rdb_NA_NA.h5`
 
-# Or using shell script (Linux/Mac)
-./download_data.sh
-```
-
-**Note**: You may need to update `FILE_ID` or `DIRECT_URL` in the download scripts with the actual data source.
+   Override the path at runtime if needed: `python train.py data.data_path=/abs/path/to/file.hdf5`
 
 ## Project Structure
 
 ```text
 flow-matching-pde/
 ├── configs/
-│   ├── config.yaml               # Main Hydra defaults
-│   ├── accelerate/               # accelerate runtime profiles
-│   ├── data/                     # Dataset config(s)
-│   ├── model/                    # Model config(s)
+│   ├── config.yaml               # Main Hydra defaults (training)
+│   ├── eval.yaml                 # Main Hydra defaults (evaluation)
+│   ├── accelerate/               # Accelerate runtime profiles
+│   ├── data/                     # Dataset configs (darcy.yaml, swe.yaml)
+│   ├── evaluator/                # Evaluator + solver configs (euler, rk4, dopri5)
+│   ├── model/                    # Model configs
 │   ├── trainer/                  # Trainer + optimizer/scheduler/loss configs
 │   ├── train/                    # Extra train presets
 │   └── wandb/                    # W&B on/off configs
 ├── data/
 │   ├── base.py
-│   └── darcy.py
+│   ├── darcy.py
+│   └── swe.py
+├── evaluation/
+│   ├── evaluator.py              # FlowMatchingEvaluator (one-step + rollout)
+│   ├── metrics.py                # RelativeL2, MSE, Linf trackers
+│   ├── packers.py                # ConditionPacker
+│   ├── sample_store.py           # Optional prediction/target storage
+│   └── solvers.py                # EulerSolver, RK4Solver, Dopri5Solver
 ├── models/
 │   ├── unet.py
 │   ├── fno.py
@@ -69,24 +74,30 @@ flow-matching-pde/
 │   ├── trainer.py
 │   ├── data_processors.py
 │   └── training_state.py
+├── util/                         # Shared utilities (config, reproducibility, etc.)
 ├── train.py                      # Main Hydra training entrypoint
-└── launch_train.py               # Node-rank launcher wrapper for multi-node
+├── evaluate.py                   # Main Hydra evaluation entrypoint
+├── launch_train.py               # Node-rank launcher wrapper for multi-node training
+├── launch_eval.py                # Node-rank launcher wrapper for multi-node evaluation
+└── visualize_swe_eval.py         # Visualization helper for SWE rollout results
 ```
 
 ## Usage
 
 ### Training
 
-#### Using `train.py` (Hydra)
-
-Each run writes `metrics.json` and `resolved_config.yaml` under the Hydra output directory.
+Each run writes `metrics.json` and `resolved_config.yaml` under the Hydra output directory (`runs/<data>-<model>-<timestamp>/`).
 
 Training is `accelerate`-native by default, including single-node single-GPU runs.
 
-**CUDA OOM / large batches:** keep `data.batch_size` at a size that fits in memory, and increase ``trainer.gradient_accumulation_steps`` so each optimizer step uses gradients summed over that many microbatches (effective batch ≈ ``batch_size × gradient_accumulation_steps`` with the default sum-reduction MSE). Optionally set ``trainer.mixed_precision=true`` (autocast) to reduce memory further.
+**CUDA OOM / large batches:** keep `data.batch_size` at a size that fits in memory, and increase `trainer.gradient_accumulation_steps` so each optimizer step uses gradients summed over that many microbatches (effective batch ≈ `batch_size × gradient_accumulation_steps` with the default sum-reduction MSE). Optionally set `accelerate.mixed_precision=fp16` to reduce memory further.
 
 ```bash
+# Default: Darcy + U-Net
 python train.py model=unet data=darcy trainer=run wandb=disabled
+
+# Shallow Water Equations + FNO
+python train.py model=fno data=swe trainer=run wandb=disabled
 ```
 
 ### Accelerate launch matrix
@@ -95,7 +106,7 @@ python train.py model=unet data=darcy trainer=run wandb=disabled
 
 `data.batch_size * accelerate.num_processes * trainer.gradient_accumulation_steps`
 
-Single GPU (default config path):
+Single GPU:
 
 ```bash
 accelerate launch --num_processes 1 train.py trainer=run accelerate=single_gpu
@@ -112,79 +123,102 @@ Multi-node, multi-GPU (direct `accelerate launch` on each node):
 ```bash
 # Node 0
 accelerate launch \
-  --num_machines 2 \
-  --machine_rank 0 \
+  --num_machines 2 --machine_rank 0 \
   --num_processes 4 \
-  --main_process_ip 10.0.0.1 \
-  --main_process_port 29500 \
+  --main_process_ip 10.0.0.1 --main_process_port 29500 \
   train.py trainer=run accelerate=multi_node accelerate.machine_rank=0
 
 # Node 1
 accelerate launch \
-  --num_machines 2 \
-  --machine_rank 1 \
+  --num_machines 2 --machine_rank 1 \
   --num_processes 4 \
-  --main_process_ip 10.0.0.1 \
-  --main_process_port 29500 \
+  --main_process_ip 10.0.0.1 --main_process_port 29500 \
   train.py trainer=run accelerate=multi_node accelerate.machine_rank=1
 ```
 
 Multi-node with node-rank launcher (`launch_train.py`):
 
 ```bash
-# Same command template on each node; only --node-id changes.
+# Same command on each node; only --node-id changes
 python launch_train.py \
-  --node-id 0 \
-  --num-machines 2 \
-  --num-processes 4 \
-  --main-process-ip 10.0.0.1 \
-  --main-process-port 29500 \
+  --node-id 0 --num-machines 2 --num-processes 4 \
+  --main-process-ip 10.0.0.1 --main-process-port 29500 \
   -- trainer=run accelerate=multi_node
 
 python launch_train.py \
-  --node-id 1 \
-  --num-machines 2 \
-  --num-processes 4 \
-  --main-process-ip 10.0.0.1 \
-  --main-process-port 29500 \
+  --node-id 1 --num-machines 2 --num-processes 4 \
+  --main-process-ip 10.0.0.1 --main-process-port 29500 \
   -- trainer=run accelerate=multi_node
 ```
 
 ### Common Hydra overrides
 
-Show available groups/options:
-
 ```bash
-python train.py --help
-```
+python train.py --help  # show available groups/options
 
-Examples:
-
-```bash
-# Switch model and trainer preset
+# Switch model
 python train.py model=fno trainer=debug
 
 # Enable W&B
-python train.py wandb=enabled
+python train.py wandb=enabled wandb.project=my_project wandb.entity=my_entity
 
-# Override runtime and optimization knobs
+# Override batch size and optimizer knobs
 python train.py data.batch_size=16 trainer.gradient_accumulation_steps=2 accelerate.mixed_precision=fp16
+
+# Full override example
+python train.py model=fno data=swe trainer.n_epochs=100 trainer.optimizer.lr=0.001
 ```
 
-### Configuration
+---
 
-All configurations are managed through Hydra. Key files:
+### Evaluation
 
-- `configs/config.yaml`: Main configuration file
-- `configs/accelerate/*.yaml`: Runtime/distributed settings
-- `configs/model/`: Model-specific configurations
-- `configs/data/`: Dataset configurations
-- `configs/trainer/`: Trainer/optimizer/scheduler/loss wiring
+Evaluation uses a separate Hydra config (`configs/eval.yaml`) and writes `eval_metrics.json` and `resolved_config.yaml` under `evals/<data>-<model>-<timestamp>/`.
 
-You can override any configuration via command line:
+You must supply a `checkpoint_dir` pointing to the checkpoint directory created during training.
+
+#### One-step evaluation (Darcy and similar)
+
 ```bash
-python train.py model=fno trainer.n_epochs=100 trainer.optimizer.lr=0.001
+python evaluate.py \
+  model=unet data=darcy evaluator=euler \
+  checkpoint_dir=runs/darcy-unet-2024-01-01_12-00-00/checkpoints
 ```
+
+#### Auto-regressive rollout evaluation (SWE)
+
+Set `time_variate=true` — the evaluator automatically activates dataset eval mode and runs full-trajectory rollout:
+
+```bash
+python evaluate.py \
+  model=fno data=swe evaluator=rk4 \
+  checkpoint_dir=runs/swe-fno-2024-01-01_12-00-00/checkpoints \
+  data.time_variate=true
+```
+
+#### Changing the ODE solver
+
+```bash
+# Euler (default, fast)
+python evaluate.py evaluator=euler checkpoint_dir=...
+
+# Runge-Kutta 4
+python evaluate.py evaluator=rk4 checkpoint_dir=...
+
+# Dormand-Prince (adaptive, via torchdiffeq)
+python evaluate.py evaluator=dopri5 checkpoint_dir=...
+```
+
+#### Multi-node evaluation (`launch_eval.py`)
+
+```bash
+python launch_eval.py \
+  --node-id 0 --num-machines 2 --num-processes 4 \
+  --main-process-ip 10.0.0.1 --main-process-port 29500 \
+  -- checkpoint_dir=runs/... evaluator=euler
+```
+
+---
 
 ## Models
 
@@ -201,58 +235,69 @@ python train.py model=fno trainer.n_epochs=100 trainer.optimizer.lr=0.001
 ### U-Net
 - **File**: `models/unet.py`
 - **Forward signature**: `forward(t, u, coords=None, params=None)`
-- **Key parameters**: `in_channels`, `out_channels`, `base_channels`, `coord_channels` (optional extra field channels when coords are pre-concatenated into `u`), `film_param_dim` for FiLM blocks
+- **Key parameters**: `in_channels`, `out_channels`, `base_channels`, `coord_channels`, `film_param_dim`
 
 ### Field ViT
 - **File**: `models/vit.py` (`FieldViT`)
-- **Forward signature**: `forward(t, u, coords=None, params=None)` (``coords`` unused; coords should be concatenated into ``u`` when ``coord_channels>0``)
+- **Forward signature**: `forward(t, u, coords=None, params=None)` (coords should be concatenated into `u` when `coord_channels > 0`)
 - **Key parameters**: `patch_size`, `embed_dim`, `depth`, `num_heads`, `coord_channels`, `film_param_dim`
 
 ### AM-FNO
 - **File**: `models/amfno.py`
 - **Forward signature**: `forward(t, u, coords=None, params=None)`
-- **Key parameters**: `param_dim`, `context_dim` (parameter MLP → tiled context maps before the spectral trunk), `coord_channels`, `film_param_dim`
+- **Key parameters**: `param_dim`, `context_dim`, `coord_channels`, `film_param_dim`
+
+---
 
 ## Data
 
-The default dataset is Darcy flow from HDF5:
+### Darcy Flow
+- **Input**: `nu`, **Target**: `tensor`
+- **Default path**: `data/_data/darcy/2D_DarcyFlow_beta1.0_Train.hdf5`
+- **Config**: `configs/data/darcy.yaml` / `data/darcy.py`
 
-- input: `nu`
-- target: `tensor`
-- default path: `data/_data/darcy/2D_DarcyFlow_beta1.0_Train.hdf5`
+### Shallow Water Equations (SWE)
+- **Layout**: per-trajectory HDF5 keys `XXXX/data` `(T, H, W, 1)`, `XXXX/grid/t`, `XXXX/grid/x`, `XXXX/grid/y`
+- **Default path**: `data/_data/shallow-water/2D_rdb_NA_NA.h5`
+- **Config**: `configs/data/swe.yaml` / `data/swe.py`
+- **Training mode**: produces `N × (T-1)` one-step pairs per trajectory
+- **Eval mode**: returns full trajectories for auto-regressive rollout
+- **Notable options** (in `configs/data/swe.yaml`):
+  - `append_physical_time`: broadcast the PDE time as a spatial channel
+  - `append_coords`: append x/y coordinate maps as conditioning channels
+  - `preload`: load all trajectories into RAM (for small datasets)
 
-Configured in `configs/data/darcy.yaml` and loaded by `data/darcy.py`.
+---
 
 ## Weights & Biases Integration
 
-To enable W&B logging:
-
-1. Install wandb: `pip install wandb`
-2. Configure in `configs/wandb/enabled.yaml`
-3. Use: `python train.py wandb=enabled`
-
-Or override via command line:
 ```bash
+pip install wandb
 python train.py wandb=enabled wandb.project=my_project wandb.entity=my_entity
 ```
+
+---
 
 ## Troubleshooting
 
 ### Missing Data
-If you encounter data loading errors:
-1. Ensure the configured file exists at `data.data_path` (default in `configs/data/darcy.yaml`)
-2. Override the data path explicitly if needed, e.g. `python train.py data.data_path=/abs/path/to/file.hdf5`
+- Ensure the HDF5 file exists at `data.data_path`
+- Override at runtime: `python train.py data.data_path=/abs/path/to/file.hdf5`
 
 ### CUDA Out of Memory
-- Reduce `batch_size` in config
-- Use gradient accumulation
-- Enable mixed precision training
+- Reduce `data.batch_size`
+- Increase `trainer.gradient_accumulation_steps`
+- Enable mixed precision: `accelerate.mixed_precision=fp16`
 
 ### Import Errors
-- Ensure all dependencies are installed: `pip install -r requirements.txt`
-- Verify `neuralop` package is installed: `pip install neuralop`
+- Install all dependencies: `pip install -r requirements.txt`
+- Verify `neuralop` is installed: `pip install neuraloperator`
+- For adaptive ODE solvers: `pip install torchdiffeq`
+
+---
 
 ## Notes
 
-- Checkpoints are saved under `${hydra.run.dir}/checkpoints` (`model_state_dict.pt`, `optimizer.pt`, `scheduler.pt`, `manifest.pt`).
-- Logging side effects (stdout/tqdm/W&B) are restricted to the main process when running distributed jobs.
+- Checkpoints are saved under `${hydra.run.dir}/checkpoints` — files: `model_state_dict.pt`, `optimizer.pt`, `scheduler.pt`, `manifest.pt`.
+- Logging side effects (stdout/tqdm/W&B) are restricted to the main process in distributed jobs.
+- Physical PDE time and flow-matching time `τ ∈ [0, 1]` are distinct; the SWE dataset can optionally append the former as a conditioning channel so the model knows its position in the physical trajectory.
