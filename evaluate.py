@@ -27,6 +27,40 @@ def _resolve_config(cfg: DictConfig) -> DictConfig:
     return cfg
 
 
+def _infer_eval_channels(first_batch: dict, time_variate: bool) -> dict:
+    """Infer model channel sizes from a raw (unprocessed) dataset batch.
+
+    Mirrors train.py's _infer_model_channels but works on the raw batch
+    instead of a FlowMatchingProcessor-preprocessed one, so evaluate.py
+    does not need the trainer config at all.
+
+    For all datasets:
+      vis_channels  = state channels (x_0 shape[1])
+      cond_channels = conditioning channels (batch["x"] or conditions[:, 0] shape[1])
+      out_channels  = target channels (y / targets[:, 0] shape[1])
+      in_channels   = vis_channels  (u carries state only; cond is separate)
+    """
+    if time_variate:
+        x_0    = first_batch["x_0"]             # [B, C_state, H, W]
+        cond   = first_batch["conditions"][:, 0] # [B, C_extra, H, W]
+        target = first_batch["targets"][:, 0]    # [B, C_out,   H, W]
+    else:
+        x_0    = first_batch["x_0"]             # [B, C_state, H, W]
+        cond   = first_batch["x"]               # [B, C_cond,  H, W]
+        target = first_batch["y"]               # [B, C_out,   H, W]
+
+    vis_channels  = int(x_0.shape[1])
+    cond_channels = int(cond.shape[1])
+    out_channels  = int(target.shape[1])
+
+    return {
+        "in_channels":  vis_channels,
+        "vis_channels": vis_channels,
+        "cond_channels": cond_channels,
+        "out_channels": out_channels,
+    }
+
+
 def _build_eval_loader(cfg: DictConfig, dataset) -> DataLoader:
     """Build the val split using the same seed as training for a consistent held-out set."""
     batch_size = int(cfg.data.batch_size)
@@ -84,32 +118,18 @@ def main(cfg: DictConfig) -> None:
     dataset = instantiate(cfg.data)
     eval_loader = _build_eval_loader(cfg, dataset)
 
-    # --- Packer-aware channel inference ---
+    # --- Channel inference ---
     packer = instantiate(cfg.evaluator.packer)
     first_batch = next(iter(eval_loader))
-
-    if time_variate:
-        # Batch keys: "x_0", "conditions" [B, T-1, C_extra, H, W], "targets", "time_schedule"
-        x_0_sample   = first_batch["x_0"]               # [B, 1, H, W]
-        cond_sample  = first_batch["conditions"][:, 0]  # [B, C_extra, H, W]
-        full_cond    = torch.cat([x_0_sample, cond_sample], dim=1)
-        dummy_packed = packer.pack(torch.zeros_like(x_0_sample), full_cond)
-        in_channels  = int(dummy_packed.shape[1])
-        out_channels = int(x_0_sample.shape[1])
-    else:
-        x_sample     = first_batch["x"]                 # [B, C_cond, H, W]
-        y_sample     = first_batch["y"]                 # [B, C_out, H, W]
-        dummy_packed = packer.pack(torch.zeros_like(y_sample), x_sample)
-        in_channels  = int(dummy_packed.shape[1])
-        out_channels = int(y_sample.shape[1])
+    inferred = _infer_eval_channels(first_batch, time_variate)
+    accelerator.print(
+        f"Inferred channels — in: {inferred['in_channels']}, "
+        f"cond: {inferred['cond_channels']}, "
+        f"out: {inferred['out_channels']}, vis: {inferred['vis_channels']}"
+    )
 
     # --- Model ---
-    model = instantiate(
-        cfg.model,
-        in_channels=in_channels,
-        out_channels=out_channels,
-        vis_channels=in_channels,
-    )
+    model = instantiate(cfg.model, **inferred)
 
     checkpoint_dir = _abspath_from_project_root(str(cfg.checkpoint_dir))
     checkpoint_name = str(cfg.checkpoint_name)
