@@ -238,7 +238,6 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         film_params: bool = False,
         param_keys = None,
         coord_normalize: str = "neg1_1",
-        tau_num_points: int = 100,
     ):
         # Initialize the parent class to inherit coordinate/FiLM capabilities
         super().__init__(
@@ -249,29 +248,12 @@ class FlowMatchingProcessor(DefaultDataProcessor):
             param_keys=param_keys,
             coord_normalize=coord_normalize,
         )
-        if tau_num_points < 2:
-            raise ValueError("tau_num_points must be >= 2")
-        self.tau_num_points = int(tau_num_points)
-        self._tau_points_cache: Optional[Tuple[torch.device, torch.dtype, torch.Tensor]] = None
-
-    def _get_tau_points(self, dtype: torch.dtype) -> torch.Tensor:
-        device = torch.device(self.device)
-        if (
-            self._tau_points_cache is None
-            or self._tau_points_cache[0] != device
-            or self._tau_points_cache[1] != dtype
-        ):
-            tau_points = torch.linspace(
-                0.0, 1.0, steps=self.tau_num_points, device=device, dtype=dtype
-            )
-            self._tau_points_cache = (device, dtype, tau_points)
-        return self._tau_points_cache[2]
 
     def preprocess(self, data_dict, batched=True, step=0):
         """
         Transforms the dataset output into the Flow Matching trajectory.
         """
-        # 1. Flexible Key Extraction 
+        # 1. Flexible Key Extraction
         # (Supports unified {"conditioning", "target"} or legacy {"x", "y"})
         if "target" in data_dict:
             X_target = data_dict.pop("target").to(self.device)
@@ -283,37 +265,35 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         B = X_target.shape[0]
 
         # 2. Flow Matching Mathematics
-        # X_0 must be supplied by the dataset via the "x_0" key
+        # x_0 is the previous physical state — still required from the dataset
+        # so it can be concatenated as a spatial anchor channel (see step 3).
         if "x_0" not in data_dict:
             raise KeyError(
                 "FlowMatchingProcessor requires 'x_0' in the data dict. "
                 "Override _make_x0() in your dataset class to provide the physical initial condition."
             )
-        X_0 = data_dict.pop("x_0").to(self.device)
+        u_t_phys = data_dict.pop("x_0").to(self.device)  # [B, 1, H, W] — previous physical state
 
-        # Sample flow time tau from a discrete uniform grid in [0, 1]
-        tau_points = self._get_tau_points(X_target.dtype)
-        tau_idx = torch.randint(0, self.tau_num_points, (B,), device=self.device)
-        tau = tau_points[tau_idx]
+        # Sample flow-matching time τ ~ U(0, 1) continuously
+        tau = torch.rand(B, device=self.device, dtype=X_target.dtype)
         tau_spatial = tau
         while tau_spatial.dim() < X_target.dim():
             tau_spatial = tau_spatial.unsqueeze(-1)
 
-        # Calculate intermediate state: X_tau = (1 - tau)*X_0 + tau*X_target
-        X_tau = (1 - tau_spatial) * X_0 + tau_spatial * X_target
-
-        # Standard OT-CFM: constant velocity along the linear path X_0 → X_target.
-        # V = X_target - X_0 is independent of tau, so Euler integrates it exactly.
-        # (V = X_target - X_tau would give only ~63% of displacement after 100 steps.)
-        V_target = X_target - X_0
+        # Base distribution is pure Gaussian noise — generative denoising formulation.
+        # X_tau interpolates from noise toward the target; velocity points from noise to target.
+        X_0_noise = torch.randn_like(X_target)
+        X_tau = (1 - tau_spatial) * X_0_noise + tau_spatial * X_target
+        V_target = X_target - X_0_noise
 
         # 3. Structure for the Trainer & Model
-        # Notice we use the key "u" for the primary state tensor. 
-        # This triggers the parent class's `apply_model_conditioning` automatically!
+        # u is 2-channel: [X_tau (noisy state), u_t_phys (clean previous state)].
+        # Ch 1 gives the model the physical anchor so it knows what physics to continue.
+        u_combined = torch.cat([X_tau, u_t_phys], dim=1)  # [B, 2, H, W]
         data_dict["x"] = {
-            "u": X_tau,              # Noisy state (coords will be appended here if append_coords=True)
-            "t": tau,             # 1D time tensor for DiT/UNet time embeddings
-            "cond": C                # Physical conditioning (permeability, previous timestep)
+            "u": u_combined,         # Ch 0: noisy state blend; Ch 1: clean prior state
+            "t": tau,                # 1D flow-matching time tensor [B]
+            "cond": C                # Physical conditioning (e.g. broadcast physical time map)
         }
         
         # The Trainer will automatically calculate MSE loss against this target
