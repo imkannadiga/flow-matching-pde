@@ -43,7 +43,6 @@ class LFNO(PDEModel):
         hidden_channels,
         proj_channels=None,
         x_dim=2,
-        t_scaling=1,
         coord_channels=0,
         out_channels=None,
         n_layers=4,
@@ -51,7 +50,6 @@ class LFNO(PDEModel):
     ):
         super().__init__()
         del kwargs
-        self.t_scaling      = t_scaling
         self.vis_channels   = int(vis_channels)
         self.out_channels   = int(out_channels) if out_channels is not None else self.vis_channels
         self.coord_channels = int(coord_channels)
@@ -88,7 +86,6 @@ class LFNO(PDEModel):
 
     def forward(self, u, cond, t):
         B, _, H, W = u.shape
-        t = t / self.t_scaling
 
         if cond.dim() == 4:
             cond = self.cond_encoder(cond.float()) if self.cond_encoder is not None \

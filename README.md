@@ -225,7 +225,7 @@ python launch_eval.py \
 ### FNO (Fourier Neural Operator)
 - **File**: `models/fno.py`
 - **Forward signature**: `forward(t, u, coords=None, params=None)`
-- **Key parameters**: `modes`, `hidden_channels`, `proj_channels`, `t_scaling` (default `1`)
+- **Key parameters**: `modes`, `hidden_channels`, `proj_channels`
 
 ### LNO (Local Neural Operator)
 - **File**: `models/lno.py`

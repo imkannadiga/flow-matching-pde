@@ -4,7 +4,6 @@ name: lno
 modes: 32
 hidden_channels: 64
 x_dim: 2
-t_scaling: 1
 coord_channels: 0
 
 # --- Spatial & Local Configs ---

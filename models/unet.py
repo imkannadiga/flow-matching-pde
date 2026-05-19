@@ -15,13 +15,11 @@ class UNet(PDEModel):
         base_channels=64,
         coord_channels=0,
         cond_channels=0,
-        t_scaling=1,
         film_param_dim=0,
         **kwargs,
     ):
         super().__init__()
         del kwargs
-        self.t_scaling = t_scaling
         self.field_channels = int(in_channels)
         self.coord_channels = int(coord_channels)
         self.cond_channels = int(cond_channels)
@@ -88,7 +86,6 @@ class UNet(PDEModel):
 
     def forward(self, t, u, cond=None, coords=None, **kwargs):
         t_orig = t
-        t = t / self.t_scaling
         B, _, H, W = u.shape
 
         # 1. Spatial Inputs Setup (u + coords)

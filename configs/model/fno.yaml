@@ -5,7 +5,6 @@ modes: 32
 hidden_channels: 64
 proj_channels: 64
 x_dim: 2
-t_scaling: 1
     
 n_layers: 4             
 separable: true

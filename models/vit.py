@@ -83,7 +83,6 @@ class FieldViT(PDEModel):
         mlp_ratio: float = 4.0,
         coord_channels: int = 0,
         film_param_dim: int = 0,
-        t_scaling: float = 1.0,
         out_channels=None,
         **kwargs,
     ):
@@ -96,7 +95,6 @@ class FieldViT(PDEModel):
         self.coord_channels = int(coord_channels)
         self.patch_size = int(patch_size)
         self.embed_dim = int(embed_dim)
-        self.t_scaling = float(t_scaling)
         in_ch = self.vis_channels + self.coord_channels
         self.patch_embed = nn.Conv2d(
             in_ch, embed_dim, kernel_size=patch_size, stride=patch_size
@@ -118,7 +116,6 @@ class FieldViT(PDEModel):
 
     def forward(self, t, u, coords=None, params=None):
         del coords
-        t = t / self.t_scaling
         b, c, h, w = u.shape
         if self.coord_channels > 0:
             if c != self.vis_channels + self.coord_channels:

@@ -71,14 +71,12 @@ class FNO(PDEModel):
         hidden_channels,
         proj_channels,
         x_dim=2,
-        t_scaling=1,
         coord_channels=0,
         out_channels=None,
         n_layers=4,
         **kwargs,
     ):
         super().__init__()
-        self.t_scaling = t_scaling
         self.vis_channels = int(vis_channels)
         self.out_channels = int(out_channels) if out_channels is not None else self.vis_channels
         self.coord_channels = int(coord_channels)
@@ -126,7 +124,6 @@ class FNO(PDEModel):
         dims = u.shape[2:]
 
         # 1. Format flow-matching time → [B, 1]
-        t = t / self.t_scaling
         if t.dim() == 0 or t.numel() == 1:
             t = torch.ones(batch_size, 1, device=u.device, dtype=torch.float32) * t
         elif t.dim() == 1:

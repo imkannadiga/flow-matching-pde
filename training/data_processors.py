@@ -225,21 +225,17 @@ class DefaultDataProcessor(DataProcessor):
         return self.preprocess(x)
 
 class FlowMatchingProcessor(DefaultDataProcessor):
-    """
-    Processor for Flow Matching. 
-    Intercepts the data batch, samples time and noise, calculates the 
-    intermediate state, and prepares the dictionary for the Trainer.
-    """
+    """Processor for flow matching training."""
+
     def __init__(
         self,
         device,
         append_coords: bool = False,
-        domain_bounds = None,
+        domain_bounds=None,
         film_params: bool = False,
-        param_keys = None,
+        param_keys=None,
         coord_normalize: str = "neg1_1",
     ):
-        # Initialize the parent class to inherit coordinate/FiLM capabilities
         super().__init__(
             device=device,
             append_coords=append_coords,
@@ -250,64 +246,32 @@ class FlowMatchingProcessor(DefaultDataProcessor):
         )
 
     def preprocess(self, data_dict, batched=True, step=0):
-        """
-        Transforms the dataset output into the Flow Matching trajectory.
-        """
-        # 1. Flexible Key Extraction
-        # (Supports unified {"conditioning", "target"} or legacy {"x", "y"})
         if "target" in data_dict:
-            X_target = data_dict.pop("target").to(self.device)
+            x_1 = data_dict.pop("target").to(self.device)
             C = data_dict.pop("conditioning").to(self.device)
         else:
-            X_target = data_dict.pop("y").to(self.device)
+            x_1 = data_dict.pop("y").to(self.device)
             C = data_dict.pop("x").to(self.device)
 
-        B = X_target.shape[0]
-
-        # 2. Flow Matching Mathematics
-        # x_0 is the previous physical state — still required from the dataset
-        # so it can be concatenated as a spatial anchor channel (see step 3).
         if "x_0" not in data_dict:
             raise KeyError(
                 "FlowMatchingProcessor requires 'x_0' in the data dict. "
-                "Override _make_x0() in your dataset class to provide the physical initial condition."
+                "Override _make_x0() in your dataset class."
             )
-        u_t_phys = data_dict.pop("x_0").to(self.device)  # [B, 1, H, W] — previous physical state
+        x_0 = data_dict.pop("x_0").to(self.device)
 
-        # Sample flow-matching time τ ~ U(0, 1) continuously
-        tau = torch.rand(B, device=self.device, dtype=X_target.dtype)
-        tau_spatial = tau
-        while tau_spatial.dim() < X_target.dim():
-            tau_spatial = tau_spatial.unsqueeze(-1)
+        B = x_1.shape[0]
+        tau = torch.rand(B, device=self.device, dtype=x_1.dtype)
+        tau_s = tau.view(B, 1, 1, 1)
 
-        # Base distribution is pure Gaussian noise — generative denoising formulation.
-        # X_tau interpolates from noise toward the target; velocity points from noise to target.
-        X_0_noise = torch.randn_like(X_target)
-        X_tau = (1 - tau_spatial) * X_0_noise + tau_spatial * X_target
-        V_target = X_target - X_0_noise
+        x_tau = (1 - tau_s) * x_0 + tau_s * x_1
+        v_target = x_1 - x_0
 
-        # 3. Structure for the Trainer & Model
-        # u is 2-channel: [X_tau (noisy state), u_t_phys (clean previous state)].
-        # Ch 1 gives the model the physical anchor so it knows what physics to continue.
-        u_combined = torch.cat([X_tau, u_t_phys], dim=1)  # [B, 2, H, W]
-        data_dict["x"] = {
-            "u": u_combined,         # Ch 0: noisy state blend; Ch 1: clean prior state
-            "t": tau,                # 1D flow-matching time tensor [B]
-            "cond": C                # Physical conditioning (e.g. broadcast physical time map)
-        }
-        
-        # The Trainer will automatically calculate MSE loss against this target
-        data_dict["y"] = V_target
+        data_dict["x"] = {"u": x_tau, "t": tau, "cond": C}
+        data_dict["y"] = v_target
 
-        # 4. Parent Logic: Append coordinates to u, or pass FiLM params
         data_dict = self.apply_model_conditioning(data_dict)
-
         return data_dict
 
     def postprocess(self, output, data_dict, step=0):
-        """
-        During training, Flow Matching just needs the raw predicted velocity field 
-        to compute the MSE against data_dict["y"]. No un-normalizing is strictly 
-        required for the loss computation.
-        """
         return output, data_dict

@@ -21,7 +21,7 @@ preload: false
 
 batch_size: 8
 num_workers: 4
-val_fraction: 0.1
+val_fraction: 0.3
 split_seed: 42
 
 # Dataset eval mode: when true, __getitem__ returns full trajectories for
