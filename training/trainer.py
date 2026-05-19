@@ -46,9 +46,15 @@ def _wandb_numeric(x: Any) -> float:
 
 
 def _wandb_histogram_param(tensor: torch.Tensor):
-    """Build a W&B histogram from a parameter tensor (CPU, detached)."""
+    """Build a W&B histogram from a parameter tensor (CPU, detached).
+
+    Returns None when the tensor is empty or constant (zero range), which
+    would cause numpy to raise 'Too many bins for data range'.
+    """
     flat = tensor.detach().cpu().float().reshape(-1)
     if flat.numel() == 0:
+        return None
+    if float(flat.max()) == float(flat.min()):
         return None
     return wandb.Histogram(flat.numpy())
 
@@ -361,9 +367,9 @@ class Trainer:
                         total_norm_sq += pnorm ** 2
                         key = pname.replace(".", "/")
                         _last_grad_payload[f"gradients/{key}/norm"] = pnorm
-                        _last_grad_payload[f"gradients/{key}/hist"] = wandb.Histogram(
-                            g.cpu().reshape(-1).numpy()
-                        )
+                        g_flat = g.cpu().reshape(-1).numpy()
+                        if g_flat.max() != g_flat.min():
+                            _last_grad_payload[f"gradients/{key}/hist"] = wandb.Histogram(g_flat)
                     _last_grad_payload["train/grad_norm"] = total_norm_sq ** 0.5
                     _grad_norms.append(total_norm_sq ** 0.5)
 
