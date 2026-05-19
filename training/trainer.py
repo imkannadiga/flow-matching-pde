@@ -267,7 +267,12 @@ class Trainer:
                 avg_lasso_loss=avg_lasso_loss,
                 epoch_train_time=epoch_train_time
             )
-            
+
+            # Log parameter histograms before evaluate_all so everything shares
+            # the same step and we can do a single commit at the end of the epoch.
+            if self.wandb_log:
+                self._wandb_log_model_parameters(epoch + 1)
+
             if epoch % self.eval_interval == 0:
                 # evaluate and gather metrics across each loader in test_loaders
                 eval_metrics = self.evaluate_all(epoch=epoch,
@@ -287,8 +292,9 @@ class Trainer:
                 if epoch % self.save_every == 0:
                     self.checkpoint(save_dir)
 
-            if self.wandb_log:
-                self._wandb_log_model_parameters(epoch + 1)
+            # Single commit per epoch — all prior wandb.log calls used commit=False.
+            if self.wandb_log and self.accelerator.is_main_process:
+                wandb.log({}, step=epoch + 1, commit=True)
 
         return epoch_metrics
 
@@ -333,10 +339,34 @@ class Trainer:
                 unit="batch",
             )
 
+        # Accumulate gradient norms across optimizer steps; capture last sync's histograms.
+        _grad_norms: list = []
+        _last_grad_payload: dict = {}
+
         for idx, sample in enumerate(batch_iter):
             with self.accelerator.accumulate(self.model):
                 loss = self._compute_training_loss(idx, sample, training_loss)
                 self.accelerator.backward(loss)
+
+                # Capture gradients right before zero_grad so they are non-None.
+                if self.accelerator.sync_gradients and self.wandb_log and self.accelerator.is_main_process:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                    total_norm_sq = 0.0
+                    _last_grad_payload = {}
+                    for pname, p in unwrapped.named_parameters():
+                        if p.grad is None:
+                            continue
+                        g = p.grad.detach().float()
+                        pnorm = g.norm(2).item()
+                        total_norm_sq += pnorm ** 2
+                        key = pname.replace(".", "/")
+                        _last_grad_payload[f"gradients/{key}/norm"] = pnorm
+                        _last_grad_payload[f"gradients/{key}/hist"] = wandb.Histogram(
+                            g.cpu().reshape(-1).numpy()
+                        )
+                    _last_grad_payload["train/grad_norm"] = total_norm_sq ** 0.5
+                    _grad_norms.append(total_norm_sq ** 0.5)
+
                 if self.accelerator.sync_gradients:
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
@@ -360,7 +390,7 @@ class Trainer:
             avg_lasso_loss /= self.n_samples
         else:
             avg_lasso_loss = None
-        
+
         lr = None
         for pg in self.optimizer.param_groups:
             lr = pg["lr"]
@@ -374,25 +404,31 @@ class Trainer:
                 avg_lasso_loss=avg_lasso_loss,
                 lr=lr,
             )
-        # W&B: independent of verbose (otherwise quiet runs only show system charts).
+        # W&B: always commit=False — the epoch-end commit in train() flushes everything.
         if self.wandb_log and self.accelerator.is_main_process:
             train_payload = {
                 "train/train_err": train_err,
                 "train/epoch_time_s": epoch_train_time,
                 "train/avg_loss": avg_loss,
                 "train/lr": lr,
+                "train/samples_per_sec": self.n_samples / epoch_train_time if epoch_train_time > 0 else 0,
             }
             if avg_lasso_loss is not None:
                 train_payload["train/avg_lasso_loss"] = avg_lasso_loss
+            if _grad_norms:
+                train_payload["train/grad_norm_mean"] = sum(_grad_norms) / len(_grad_norms)
+                train_payload["train/grad_norm_max"] = max(_grad_norms)
+            if torch.cuda.is_available():
+                train_payload["system/gpu_memory_allocated_GB"] = torch.cuda.memory_allocated() / 1e9
+                train_payload["system/gpu_memory_reserved_GB"] = torch.cuda.memory_reserved() / 1e9
             wandb.log(
-                {
-                    k: _wandb_numeric(v)
-                    for k, v in train_payload.items()
-                    if v is not None
-                },
+                {k: _wandb_numeric(v) for k, v in train_payload.items() if v is not None},
                 step=epoch + 1,
-                commit=not will_eval,
+                commit=False,
             )
+            # Per-parameter gradient histograms and norms from last optimizer step.
+            if _last_grad_payload:
+                wandb.log(_last_grad_payload, step=epoch + 1, commit=False)
 
         return train_err, avg_loss, avg_lasso_loss, epoch_train_time
 
@@ -784,13 +820,13 @@ class Trainer:
             wandb.log(
                 {f"eval/{m}": v for m, v in parts},
                 step=epoch + 1,
-                commit=True,
+                commit=False,
             )
 
     def _wandb_log_model_parameters(self, step: int) -> None:
-        """Log W&B histograms for every model parameter once per epoch (rank 0 only).
+        """Log W&B histograms and norms for every model parameter once per epoch (rank 0 only).
 
-        Called from ``train()`` at the end of each epoch, not from the evaluation loop.
+        Uses commit=False — the caller is responsible for the final commit.
         """
         if not self.wandb_log:
             return
@@ -799,12 +835,18 @@ class Trainer:
         model = self.accelerator.unwrap_model(self.model)
         payload = {}
         with torch.no_grad():
+            total_param_norm_sq = 0.0
             for name, p in model.named_parameters():
+                key = name.replace(".", "/")
                 hist = _wandb_histogram_param(p)
                 if hist is not None:
-                    payload[f"params/{name.replace('.', '/')}"] = hist
+                    payload[f"params/{key}/hist"] = hist
+                    pnorm = p.detach().float().norm(2).item()
+                    payload[f"params/{key}/norm"] = pnorm
+                    total_param_norm_sq += pnorm ** 2
+            payload["params/global_weight_norm"] = total_param_norm_sq ** 0.5
         if payload:
-            wandb.log(payload, step=step, commit=True)
+            wandb.log(payload, step=step, commit=False)
 
     def resume_state_from_dir(self, save_dir):
         """

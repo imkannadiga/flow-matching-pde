@@ -183,6 +183,14 @@ def main(cfg: DictConfig) -> None:
         (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
         (output_dir / "resolved_config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True), encoding="utf-8")
 
+    if OmegaConf.select(cfg, "wandb.use_wandb", default=False) and accelerator.is_main_process:
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.finish()
+        except ImportError:
+            pass
+
 
 if __name__ == "__main__":
     main()
