@@ -27,9 +27,7 @@ scheduler:
 pre_train_processor:
   _target_: training.data_processors.FlowMatchingProcessor
   device: ${trainer.device}
-  append_coords: false
-  film_params: false
-  coord_normalize: neg1_1
+  state_channels: 1
 
 loss:
   _target_: torch.nn.MSELoss

@@ -1,5 +1,3 @@
 _target_: training.data_processors.FlowMatchingProcessor
 device: cuda
-append_coords: false
-film_params: false
-coord_normalize: neg1_1
+state_channels: 1

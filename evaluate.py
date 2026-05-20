@@ -30,39 +30,35 @@ def _resolve_config(cfg: DictConfig) -> DictConfig:
 def _infer_eval_channels(first_batch: dict, time_variate: bool) -> dict:
     """Infer model channel sizes from a raw (unprocessed) dataset batch.
 
-    Mirrors train.py's _infer_model_channels but works on the raw batch
-    instead of a FlowMatchingProcessor-preprocessed one, so evaluate.py
-    does not need the trainer config at all.
+    For time-invariant PDEs:
+      - in_channels / vis_channels = target channels (ODE state has same shape as target)
+      - cond_channels = batch["x"].shape[1]  (conditioning includes x_0 as first channels)
 
-    For all datasets:
-      vis_channels  = state channels (x_0 shape[1])
-      cond_channels = conditioning channels (batch["x"] or conditions[:, 0] shape[1])
-      out_channels  = target channels (y / targets[:, 0] shape[1])
-      in_channels   = vis_channels  (u carries state only; cond is separate)
+    For time-variant PDEs (rollout):
+      - cond_channels = state_channels + extra_condition_channels
+        (evaluator cats current state with conditions[:,t] at each rollout step)
     """
     if time_variate:
-        x_0    = first_batch["x_0"]             # [B, C_state, H, W]
-        cond   = first_batch["conditions"][:, 0] # [B, C_extra, H, W]
-        target = first_batch["targets"][:, 0]    # [B, C_out,   H, W]
+        x_0    = first_batch["x_0"]              # [B, C_state, H, W]
+        extra  = first_batch["conditions"][:, 0]  # [B, C_extra, H, W]
+        target = first_batch["targets"][:, 0]     # [B, C_out, H, W]
+        state_ch = int(x_0.shape[1])
+        cond_channels = state_ch + int(extra.shape[1])
     else:
-        x_0    = first_batch["x_0"]             # [B, C_state, H, W]
-        cond   = first_batch["x"]               # [B, C_cond,  H, W]
-        target = first_batch["y"]               # [B, C_out,   H, W]
-
-    vis_channels  = int(x_0.shape[1])
-    cond_channels = int(cond.shape[1])
-    out_channels  = int(target.shape[1])
+        cond   = first_batch["x"]   # [B, C_cond, H, W]
+        target = first_batch["y"]   # [B, C_out, H, W]
+        state_ch = int(target.shape[1])
+        cond_channels = int(cond.shape[1])
 
     return {
-        "in_channels":  vis_channels,
-        "vis_channels": vis_channels,
+        "in_channels":   state_ch,
+        "vis_channels":  state_ch,
         "cond_channels": cond_channels,
-        "out_channels": out_channels,
+        "out_channels":  int(target.shape[1]),
     }
 
 
 def _build_eval_loader(cfg: DictConfig, dataset) -> DataLoader:
-    """Build the val split using the same seed as training for a consistent held-out set."""
     batch_size = int(cfg.data.batch_size)
     num_workers = int(cfg.data.num_workers)
     val_fraction = float(cfg.data.val_fraction)
@@ -99,8 +95,6 @@ def main(cfg: DictConfig) -> None:
 
     time_variate = bool(cfg.data.get("time_variate", False))
 
-    # Auto-enable dataset eval mode when running time-variate evaluation.
-    # The user only needs to set time_variate=true; eval=true is implied.
     if time_variate:
         OmegaConf.update(cfg, "data.eval", True, merge=True)
 
@@ -114,12 +108,9 @@ def main(cfg: DictConfig) -> None:
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
 
-    # --- Dataset & loader ---
     dataset = instantiate(cfg.data)
     eval_loader = _build_eval_loader(cfg, dataset)
 
-    # --- Channel inference ---
-    packer = instantiate(cfg.evaluator.packer)
     first_batch = next(iter(eval_loader))
     inferred = _infer_eval_channels(first_batch, time_variate)
     accelerator.print(
@@ -128,7 +119,6 @@ def main(cfg: DictConfig) -> None:
         f"out: {inferred['out_channels']}, vis: {inferred['vis_channels']}"
     )
 
-    # --- Model ---
     model = instantiate(cfg.model, **inferred)
 
     checkpoint_dir = _abspath_from_project_root(str(cfg.checkpoint_dir))
@@ -136,21 +126,18 @@ def main(cfg: DictConfig) -> None:
     model, *_ = load_training_state(checkpoint_dir, checkpoint_name, model)
     model.eval()
 
-    # --- Evaluator components ---
     solver = instantiate(cfg.evaluator.solver)
     metric_tracker = instantiate(cfg.evaluator.metric_tracker)
     sample_store_cfg = cfg.evaluator.get("sample_store", None)
     sample_store = instantiate(sample_store_cfg) if sample_store_cfg is not None else None
     store_rollout = bool(cfg.evaluator.get("store_rollout", False))
 
-    # --- Accelerate prepare ---
     model, eval_loader = accelerator.prepare(model, eval_loader)
 
     evaluator = FlowMatchingEvaluator(
         model=model,
         solver=solver,
         metric_tracker=metric_tracker,
-        packer=packer,
         sample_store=sample_store,
         accelerator=accelerator,
         store_rollout=store_rollout,
