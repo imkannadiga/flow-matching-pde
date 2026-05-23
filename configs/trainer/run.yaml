@@ -23,8 +23,8 @@ optimizer:
 scheduler:
   _target_: torch.optim.lr_scheduler.StepLR
   _partial_: true
-  step_size: 25
-  gamma: 0.5
+  step_size: 10
+  gamma: 0.3
 
 pre_train_processor:
   _target_: training.data_processors.FlowMatchingProcessor
