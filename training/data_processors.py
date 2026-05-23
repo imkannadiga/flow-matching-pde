@@ -72,14 +72,7 @@ class FlowMatchingProcessor(DataProcessor):
     def preprocess(self, data_dict, batched=True, step=0):
         x_1 = data_dict.pop("y").to(self.device)   # [B, C_out, H, W]
         C = data_dict.pop("x").to(self.device)      # [B, C_cond, H, W], first state_channels = x_0
-
-        if self.training and torch.rand(1).item() < 0.3:
-            x_0_part = C[:, :self.state_channels]
-            C = torch.cat(
-                [x_0_part + 0.1 * torch.randn_like(x_0_part), C[:, self.state_channels:]],
-                dim=1,
-            )
-
+        
         B = x_1.shape[0]
         x_noise = torch.randn_like(x_1)
         tau = torch.rand(B, device=self.device, dtype=x_1.dtype)

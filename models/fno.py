@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.base import PDEModel
+from models.film import FiLMLayer
 
 def make_posn_embed(batch_size, dims):
     """Creates a standard 2D positional embedding [Batch, 2, X, Y]."""
@@ -11,21 +12,14 @@ def make_posn_embed(batch_size, dims):
     pos = torch.stack([pos_x, pos_y], dim=0)
     return pos.unsqueeze(0).expand(batch_size, -1, -1, -1)
 
-class FiLMLayer(nn.Module):
-    def __init__(self, cond_dim, num_features):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(cond_dim, num_features),
-            nn.SiLU(),
-            nn.Linear(num_features, num_features * 2)
-        )
+def t_allhot(t, shape):
+    batch_size = shape[0]
+    dim = shape[2:] # [X, Y]
+    n_dim = len(dim) # 2
 
-    def forward(self, x, cond):
-        out = self.net(cond)
-        scale, shift = out.chunk(2, dim=1)
-        scale = scale.view(scale.shape[0], scale.shape[1], 1, 1)
-        shift = shift.view(shift.shape[0], shift.shape[1], 1, 1)
-        return x * (1 + scale) + shift
+    t = t.view(batch_size, 1, *[1]*n_dim)
+    
+    return t.expand(batch_size, 1, *dim)
 
 class SpectralConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, modes1, modes2):
@@ -35,8 +29,8 @@ class SpectralConv2d(nn.Module):
         self.modes1 = modes1
         self.modes2 = modes2
         scale = (1 / (in_channels * out_channels))
-        self.weights1 = nn.Parameter(scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat))
-        self.weights2 = nn.Parameter(scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat))
+        self.weights1 = nn.Parameter(scale * torch.randn(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat))
+        self.weights2 = nn.Parameter(scale * torch.randn(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat))
 
     def forward(self, x):
         batchsize = x.shape[0]
@@ -74,6 +68,7 @@ class FNO(PDEModel):
         coord_channels=0,
         out_channels=None,
         n_layers=4,
+        periodic=False,
         **kwargs,
     ):
         super().__init__()
@@ -104,7 +99,7 @@ class FNO(PDEModel):
 
         # Spatial input channels: u + pos_embed (or pre-embedded coords)
         spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
-        in_channels = self.vis_channels + spatial_extra
+        in_channels = self.vis_channels + spatial_extra + 1 # tau embedding
 
         self.p = nn.Conv2d(in_channels, hidden_channels, 1)
 
@@ -118,6 +113,11 @@ class FNO(PDEModel):
             nn.GELU(),
             nn.Conv2d(proj_channels, self.out_channels, 1)
         )
+
+        if not periodic:
+            self.periodic = False
+            self.padding_x = 16 # Hardcoded for now
+            self.padding_y = 16 # Hardcoded for now
 
     def forward(self, u, cond, t):
         batch_size = u.shape[0]
@@ -147,12 +147,21 @@ class FNO(PDEModel):
         else:
             posn = make_posn_embed(batch_size, dims).to(u.device)
             u_in = torch.cat((u, posn), dim=1).float().contiguous()
-
+        
         # 5. Lift the spatial state
+        t = t_allhot(t, u_in.shape)
+        u_in = torch.cat((u_in, t), dim=1)
+
+        if not self.periodic:
+            u_in = F.pad(u_in, (0, self.padding_y, 0, self.padding_x))
+
         x = self.p(u_in)
 
         # 6. Pass through blocks with FiLM conditioning
         for block in self.blocks:
             x = block(x, cond_vector)
+        
+        if not self.periodic:
+            x = x[..., :-self.padding_x, :-self.padding_y]
             
         return self.q(x)

@@ -1,7 +1,7 @@
 _target_: training.trainer.Trainer
 
 model: ${model}
-n_epochs: 300
+n_epochs: 100
 wandb_log: ${wandb.use_wandb}
 device: "cuda"
 mixed_precision: False
@@ -18,7 +18,7 @@ save_path: ${hydra:run.dir}/checkpoints
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 1e-4
+  lr: 3e-4
 
 scheduler:
   _target_: torch.optim.lr_scheduler.StepLR

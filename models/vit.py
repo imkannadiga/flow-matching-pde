@@ -114,7 +114,7 @@ class FieldViT(PDEModel):
         self.norm = nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, self.out_channels * patch_size * patch_size)
 
-    def forward(self, t, u, coords=None, params=None):
+    def forward(self, t, u, cond=None, coords=None, params=None):
         del coords
         b, c, h, w = u.shape
         if self.coord_channels > 0:

@@ -23,14 +23,14 @@ class FiLMLayer(nn.Module):
 
     def forward(self, x: torch.Tensor, params: torch.Tensor) -> torch.Tensor:
         gb = self.net(params)
-        gamma, beta = gb.chunk(2, dim=1)
+        scale, shift = gb.chunk(2, dim=1)
         if x.dim() == 4:
-            gamma = gamma.view(-1, self.n_channels, 1, 1)
-            beta = beta.view(-1, self.n_channels, 1, 1)
-            return gamma * x + beta
+            scale = scale.view(-1, self.n_channels, 1, 1)
+            shift = shift.view(-1, self.n_channels, 1, 1)
+            return x * (1 + scale) + shift
         if x.dim() == 3:
             # [B, N, D] token layout (D == n_channels)
-            gamma = gamma.unsqueeze(1)
-            beta = beta.unsqueeze(1)
-            return gamma * x + beta
+            scale = scale.unsqueeze(1)
+            shift = shift.unsqueeze(1)
+            return x * (1 + scale) + shift
         raise ValueError(f"FiLMLayer expects x of rank 3 or 4; got shape {tuple(x.shape)}")
