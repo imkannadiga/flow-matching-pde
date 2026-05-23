@@ -19,7 +19,7 @@ class SWEDataModule(BaseDataModule):
     --------------------------
     Produces N × (T-1) training pairs, one per consecutive-step transition u(t) → u(t+Δt).
     Each conditioning tensor C = [u(t), t_phys_map, (x_coord, y_coord)] is returned as "x",
-    with u(t) as the first channel so the processor can apply optional corruption.
+    with u(t) as the first channel (state channel) followed by the extra conditions.
 
     Eval mode (eval=True)
     ---------------------

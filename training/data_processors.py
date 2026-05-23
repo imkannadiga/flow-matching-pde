@@ -46,10 +46,9 @@ class FlowMatchingProcessor(DataProcessor):
 
     Conditioning C from the dataset has x_0 as its first `state_channels` channels,
     followed by any physical-time maps or spatial coords. The processor:
-      1. Optionally corrupts x_0 channels (30% of training batches).
-      2. Draws Gaussian noise x_noise with the same shape as x_1 (target).
-      3. Interpolates: x_tau = (1 - tau) * x_noise + tau * x_1.
-      4. Computes velocity target: v_target = x_1 - x_noise.
+      1. Draws Gaussian noise x_noise with the same shape as x_1 (target).
+      2. Interpolates: x_tau = (1 - tau) * x_noise + tau * x_1.
+      3. Computes velocity target: v_target = x_1 - x_noise.
 
     Model receives: u=x_tau, cond=C, t=tau.
     """
