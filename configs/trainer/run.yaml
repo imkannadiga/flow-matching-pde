@@ -21,10 +21,9 @@ optimizer:
   lr: 3e-4
 
 scheduler:
-  _target_: torch.optim.lr_scheduler.StepLR
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  step_size: 10
-  gamma: 0.3
+  T_max: ${trainer.n_epochs}
 
 pre_train_processor:
   _target_: training.data_processors.FlowMatchingProcessor
