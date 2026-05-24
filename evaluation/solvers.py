@@ -93,10 +93,16 @@ class DopriSolver(ODESolver):
     def integrate(self, model_fn: Callable, x_0: Tensor) -> Tensor:
         from torchdiffeq import odeint
 
-        t_span = torch.tensor([0.0, 1.0], device=x_0.device, dtype=x_0.dtype)
+        # dopri5 needs float32 precision — bf16/fp16 step sizes underflow to 0
+        orig_dtype = x_0.dtype
+        if orig_dtype != torch.float32:
+            x_0 = x_0.float()
+
+        t_span = torch.tensor([0.0, 1.0], device=x_0.device, dtype=torch.float32)
 
         def ode_fn(t, y):
-            return model_fn(t.item(), y)
+            v = model_fn(t.item(), y.to(orig_dtype))
+            return v.float()
 
         result = odeint(ode_fn, x_0, t_span, method="dopri5", rtol=self.rtol, atol=self.atol)
-        return result[-1]
+        return result[-1].to(orig_dtype)
