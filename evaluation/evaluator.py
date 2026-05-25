@@ -10,6 +10,8 @@ from evaluation.metrics import MetricTracker
 from evaluation.sample_store import SampleStore
 from evaluation.solvers import FixedStepSolver, ODESolver
 
+from tqdm import trange
+
 
 def _update_step_accum(
     accum: dict[int, dict[str, list]],
@@ -189,7 +191,7 @@ class FlowMatchingEvaluator:
             current = x_0
             pred_traj = [current]
 
-            for t in range(T_minus_1):
+            for t in trange(T_minus_1):
                 extra_cond = conditions[:, t]                          # [B, C_extra, H, W]
                 cond_t = torch.cat([current, extra_cond], dim=1)       # [B, 1 + C_extra, H, W]
                 noise = torch.randn_like(current)
