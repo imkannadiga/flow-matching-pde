@@ -134,7 +134,10 @@ class FlowMatchingEvaluator:
 
         collect = self.store_rollout and self.sample_store is not None
 
-        for batch in tqdm(dataloader):
+        disable_pbar = self.accelerator is not None and not self.accelerator.is_local_main_process
+        pbar = tqdm(dataloader, desc="Evaluating", unit="batch", disable=disable_pbar)
+
+        for batch in pbar:
             condition = batch["x"].to(self.device)
             true_target = batch["y"].to(self.device)
             noise = torch.randn_like(true_target)
@@ -182,7 +185,10 @@ class FlowMatchingEvaluator:
         all_true_trajs: list[Tensor] = []
         per_step_accum: dict[int, dict[str, list]] = {}
 
-        for batch in tqdm(dataloader):
+        disable_pbar = self.accelerator is not None and not self.accelerator.is_local_main_process
+        pbar = tqdm(dataloader, desc="Evaluating rollout", unit="batch", disable=disable_pbar)
+
+        for batch in pbar:
             x_0        = batch["x_0"].to(self.device)         # [B, 1, H, W]
             conditions = batch["conditions"].to(self.device)   # [B, T-1, C_extra, H, W]
             targets    = batch["targets"].to(self.device)      # [B, T-1, C_out, H, W]
@@ -191,7 +197,7 @@ class FlowMatchingEvaluator:
             current = x_0
             pred_traj = [current]
 
-            for t in trange(T_minus_1):
+            for t in trange(T_minus_1, desc="Rollout steps", leave=False, disable=disable_pbar):
                 extra_cond = conditions[:, t]                          # [B, C_extra, H, W]
                 cond_t = torch.cat([current, extra_cond], dim=1)       # [B, 1 + C_extra, H, W]
                 noise = torch.randn_like(current)
