@@ -10,7 +10,7 @@ from evaluation.metrics import MetricTracker
 from evaluation.sample_store import SampleStore
 from evaluation.solvers import FixedStepSolver, ODESolver
 
-from tqdm import trange
+from tqdm import tqdm, trange
 
 
 def _update_step_accum(
@@ -134,7 +134,7 @@ class FlowMatchingEvaluator:
 
         collect = self.store_rollout and self.sample_store is not None
 
-        for batch in dataloader:
+        for batch in tqdm(dataloader):
             condition = batch["x"].to(self.device)
             true_target = batch["y"].to(self.device)
             noise = torch.randn_like(true_target)
@@ -182,7 +182,7 @@ class FlowMatchingEvaluator:
         all_true_trajs: list[Tensor] = []
         per_step_accum: dict[int, dict[str, list]] = {}
 
-        for batch in dataloader:
+        for batch in tqdm(dataloader):
             x_0        = batch["x_0"].to(self.device)         # [B, 1, H, W]
             conditions = batch["conditions"].to(self.device)   # [B, T-1, C_extra, H, W]
             targets    = batch["targets"].to(self.device)      # [B, T-1, C_out, H, W]
