@@ -33,3 +33,9 @@ eval: false
 # When true, evaluate.py activates eval mode and FlowMatchingEvaluator uses
 # _evaluate_rollout instead of the standard one-step path.
 time_variate: true
+
+# Per-trajectory z-score normalization of water-height values.
+# Each sample is normalized by its own mean and std computed over all T×H×W values,
+# so no global dataset scan is needed.  This aligns each trajectory with the N(0,1)
+# flow-matching noise and eliminates the grid artifact at rollout step 0.
+normalize_data: true

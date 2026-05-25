@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import h5py
 import torch
 
@@ -30,6 +28,19 @@ class SWEDataModule(BaseDataModule):
     ------------------------------------
     t_phys = grid/t[t_idx]   — actual simulation clock, optionally in conditioning.
     τ ∈ [0, 1]               — generative transport parameter, handled by FlowMatchingProcessor.
+
+    Data normalization
+    ------------------
+    When ``normalize_data=True``, each trajectory is z-score normalized using its
+    own mean and std computed over all T × H × W values.  This is per-trajectory
+    normalization — no global dataset scan is needed.  It aligns each sample's
+    distribution with the N(0,1) flow-matching noise, which is critical: without
+    it the model sees a positively-biased signal (h ∈ [0.2, 2.5]) while noise is
+    zero-centred, causing the characteristic grid artifact at step 0.
+
+    Both the state channel in conditioning and the target are normalized with the
+    same trajectory-level stats; extra conditions (t_phys_map, coords) are left
+    in their natural range and are NOT normalized.
     """
 
     def __init__(
@@ -40,7 +51,8 @@ class SWEDataModule(BaseDataModule):
         append_coords: bool = False,
         preload: bool = False,
         eval: bool = False,
-        **_kwargs,
+        normalize_data: bool = True,
+        **_,
     ):
         super().__init__(str(data_path), eval=eval)
 
@@ -48,6 +60,7 @@ class SWEDataModule(BaseDataModule):
         self.normalize_time = normalize_time
         self.append_coords = append_coords
         self.preload = preload
+        self.normalize_data = normalize_data
 
         with h5py.File(self.data_path, "r") as f:
             self._sample_keys: list[str] = sorted(k for k in f.keys())
@@ -92,6 +105,26 @@ class SWEDataModule(BaseDataModule):
         self.c_channels = 1 + time_ch + coord_ch
         self.target_channels = 1
 
+    # ------------------------------------------------------------------
+    # Per-trajectory normalization helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _traj_stats(traj: torch.Tensor) -> tuple[float, float]:
+        """Mean and std of a full trajectory [T, 1, H, W] over all elements."""
+        mean = traj.mean().item()
+        std  = traj.std().clamp(min=1e-8).item()
+        return mean, std
+
+    @staticmethod
+    def _normalize(u: torch.Tensor, mean: float, std: float) -> torch.Tensor:
+        return (u - mean) / std
+
+    @staticmethod
+    def _denormalize(u: torch.Tensor, mean: float, std: float) -> torch.Tensor:
+        """Invert per-trajectory normalization — use on model output before plotting."""
+        return u * std + mean
+
     def _load_trajectory(self, key: str) -> torch.Tensor:
         if self._cache is not None:
             return self._cache[key]
@@ -127,15 +160,24 @@ class SWEDataModule(BaseDataModule):
 
         C  [c_channels, H, W]  — conditioning: [u(t_phys), t_phys_map?, x_coord?, y_coord?]
         X_target  [1, H, W]    — ground-truth next state u(t_phys + Δt)
+
+        State channels are z-score normalized using per-trajectory stats; extra
+        conditions (t_phys_map, coords) are left in their natural range and are
+        NOT normalized.
         """
         key, t_idx = self._index[idx]
         traj = self._load_trajectory(key)  # [T, 1, H, W]
         _, _, H, W = traj.shape
 
-        u_current = traj[t_idx]       # [1, H, W] — physical prior state (goes into cond as x_0)
-        u_next = traj[t_idx + 1]      # [1, H, W] — target
-        extra = self._build_extra_conditions(t_idx, H, W)  # [C_extra, H, W]
+        if self.normalize_data:
+            mean, std = self._traj_stats(traj)
+            u_current = self._normalize(traj[t_idx],     mean, std)  # [1, H, W]
+            u_next    = self._normalize(traj[t_idx + 1], mean, std)  # [1, H, W]
+        else:
+            u_current = traj[t_idx]
+            u_next    = traj[t_idx + 1]
 
+        extra = self._build_extra_conditions(t_idx, H, W)  # [C_extra, H, W]
         C = torch.cat([u_current, extra], dim=0) if extra.shape[0] > 0 else u_current
 
         return C, u_next
@@ -161,14 +203,20 @@ class SWEDataModule(BaseDataModule):
         traj = self._load_trajectory(key)  # [T, 1, H, W]
         T, _, H, W = traj.shape
 
+        if self.normalize_data:
+            mean, std = self._traj_stats(traj)
+            norm_traj = self._normalize(traj, mean, std)  # [T, 1, H, W]
+        else:
+            norm_traj = traj
+
         conditions = torch.stack([
             self._build_extra_conditions(t, H, W)
             for t in range(T - 1)
         ])  # [T-1, C_extra, H, W]
 
         return {
-            "x_0":           traj[0],
+            "x_0":           norm_traj[0],
             "conditions":    conditions,
-            "targets":       traj[1:],
+            "targets":       norm_traj[1:],
             "time_schedule": self._t_grid[:-1].clone(),
         }

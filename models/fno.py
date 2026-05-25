@@ -84,14 +84,14 @@ class FNO(PDEModel):
         else:
             self.modes = modes[:2]
 
-        # FiLM is conditioned on flow-matching time only.
-        # Conditioning fields (nu, beta, physical state, coords, …) are fused
-        # spatially by concatenating them into u_in before lifting, so the
-        # spectral convolutions have direct per-pixel access to all conditioning
-        # information.  This works identically for time-invariant PDEs (where
-        # cond = PDE parameters) and time-variant PDEs (where cond starts with
-        # the current physical state).
-        self.cond_dim = 1  # just flow-matching time τ
+        # FiLM is conditioned on [τ, global-mean(cond_channels)].
+        # τ tells the spectral filters where we are in the ODE trajectory.
+        # The global mean of the conditioning (e.g. mean permeability) gives
+        # the spectral filters a lightweight per-sample signal so they can adapt
+        # their frequency weighting to the PDE parameters without the full spatial
+        # pathway being the only route for that information.
+        # NOTE: cond_channels=0 is valid — falls back to τ-only (cond_dim=1).
+        self.cond_dim = 1 + int(cond_channels)  # τ + one scalar per cond channel
 
         # Spatial input channels: u + cond + positional embedding (or
         # pre-embedded coords from u) + τ broadcast
@@ -124,8 +124,8 @@ class FNO(PDEModel):
 
         if not periodic:
             self.periodic = False
-            self.padding_x = 16  # Hardcoded for now
-            self.padding_y = 16  # Hardcoded for now
+            self.padding_x = 8  # Reduced: 16 was too large, amplified Gibbs ringing
+            self.padding_y = 8
 
     def forward(self, u, cond, t):
         batch_size = u.shape[0]
@@ -137,9 +137,15 @@ class FNO(PDEModel):
         elif t.dim() == 1:
             t = t.unsqueeze(1).float()
 
-        # 2. FiLM conditioning vector: τ only.
-        #    Conditioning fields are fused spatially below (step 3).
+        # 2. FiLM conditioning vector: [τ, global_mean(cond)].
+        #    Global spatial mean gives spectral filters a lightweight per-sample
+        #    signal (e.g. mean permeability) without duplicating the full field.
+        #    Conditioning fields are ALSO fused spatially below (step 3).
         cond_vector = t.float()  # [B, 1]
+        if cond is not None and cond.dim() == 4 and self.cond_channels > 0:
+            # mean over H×W → [B, C_cond]; concat with τ → [B, 1 + C_cond]
+            cond_global = cond.float().mean(dim=(-2, -1))  # [B, C_cond]
+            cond_vector = torch.cat([cond_vector, cond_global], dim=1)  # [B, 1+C_cond]
 
         # 3. Build spatial input: u + (posn embed or pre-embedded coords) + cond
         if self.coord_channels > 0:
@@ -171,7 +177,7 @@ class FNO(PDEModel):
 
         x = self.p(u_in)
 
-        # 5. Pass through FNO blocks with time-only FiLM conditioning.
+        # 5. Pass through FNO blocks with FiLM conditioning on [τ, global_mean(cond)].
         for block in self.blocks:
             x = block(x, cond_vector)
 

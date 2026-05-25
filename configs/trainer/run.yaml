@@ -1,7 +1,7 @@
 _target_: training.trainer.Trainer
 
 model: ${model}
-n_epochs: 100
+n_epochs: 200  # 100 was borderline for FM on 128x128; double for convergence
 wandb_log: ${wandb.use_wandb}
 device: "cuda"
 mixed_precision: False
@@ -33,6 +33,12 @@ pre_train_processor:
   coord_normalize: neg1_1
 
 loss:
-  _target_: torch.nn.MSELoss
-  reduction: sum
+  # Relative L2 (per-sample normalized) is much better than MSE-sum for flow
+  # matching: the velocity target v = x1 - x_noise has large high-freq energy
+  # from x_noise; relative L2 suppresses those noisy gradient components.
+  _target_: training.trainer.LpLoss
+  d: 2
+  p: 2
+  reduction: true
+  size_average: true
 
