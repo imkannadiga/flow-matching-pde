@@ -119,7 +119,6 @@ class DarcyDataModule(BaseDataModule):
 
     def _fetch_data_pair(self, idx: int):
         X_target = self.pressure[idx]
-        x_0 = torch.zeros_like(X_target)  # [C_out, D, D] — no physical prior for Darcy
 
         C = self.nu[idx]  # [1, D, D]
 
@@ -135,6 +134,6 @@ class DarcyDataModule(BaseDataModule):
             C = torch.cat([C, beta_map], dim=0)  # [2, D, D]
 
         # x_0 is the first channel(s) of the conditioning
-        C = torch.cat([x_0, C], dim=0)
+        C = torch.cat([C], dim=0)
 
         return C, X_target
