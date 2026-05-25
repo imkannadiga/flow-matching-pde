@@ -23,7 +23,14 @@ optimizer:
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  T_max: ${trainer.n_epochs}
+  # T_max = n_epochs // 3 gives exactly 1.5 half-periods over training:
+  #   epoch 0          → η_max  (start)
+  #   epoch T_max      → η_min  (first dip)
+  #   epoch 2×T_max    → η_max  (rise)
+  #   epoch 3×T_max    → η_min  (final dip — training ends here)
+  # If you change n_epochs, update T_max = new_n_epochs // 3.
+  T_max: 66       # = 200 // 3
+  eta_min: 1.0e-6  # floor so LR never reaches zero (bad for Adam)
 
 pre_train_processor:
   _target_: training.data_processors.FlowMatchingProcessor
