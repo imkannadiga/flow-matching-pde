@@ -44,8 +44,14 @@ class DataProcessor(torch.nn.Module, metaclass=ABCMeta):
 class FlowMatchingProcessor(DataProcessor):
     """Preprocesses batches for flow matching training.
 
-    Conditioning C from the dataset has x_0 as its first `state_channels` channels,
-    followed by any physical-time maps or spatial coords. The processor:
+    The processor is dataset-agnostic: it does not inspect or decompose C.
+    For time-invariant PDEs (e.g. Darcy), C contains physical parameters such
+    as the permeability field nu, an optional beta map, and optional coordinate
+    channels.  For time-variant PDEs (e.g. SWE), C contains the current
+    physical state followed by extra conditions (physical time map, optional
+    spatial coords).  In both cases the processor treats C as an opaque
+    conditioning tensor and passes it unchanged to the model.
+
       1. Draws Gaussian noise x_noise with the same shape as x_1 (target).
       2. Interpolates: x_tau = (1 - tau) * x_noise + tau * x_1.
       3. Computes velocity target: v_target = x_1 - x_noise.
@@ -56,13 +62,11 @@ class FlowMatchingProcessor(DataProcessor):
     def __init__(
         self,
         device,
-        state_channels: int = 1,
         **_kwargs,
     ):
         super().__init__()
         self.device = device
         self.model = None
-        self.state_channels = int(state_channels)
 
     def to(self, device):
         self.device = device
@@ -70,7 +74,7 @@ class FlowMatchingProcessor(DataProcessor):
 
     def preprocess(self, data_dict, batched=True, step=0):
         x_1 = data_dict.pop("y").to(self.device)   # [B, C_out, H, W]
-        C = data_dict.pop("x").to(self.device)      # [B, C_cond, H, W], first state_channels = x_0
+        C = data_dict.pop("x").to(self.device)      # [B, C_cond, H, W]
         
         B = x_1.shape[0]
         x_noise = torch.randn_like(x_1)

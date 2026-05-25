@@ -27,7 +27,6 @@ scheduler:
 pre_train_processor:
   _target_: training.data_processors.FlowMatchingProcessor
   device: ${trainer.device}
-  state_channels: 1
 
 loss:
   _target_: torch.nn.MSELoss

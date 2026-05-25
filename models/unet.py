@@ -100,30 +100,30 @@ class UNet(PDEModel):
         else:
             x_in = u
 
-        # 2. Build Deep Fusion Parameter Vector (t + cond)
-        # Format t to [B, 1]
-        if t.dim() == 0 or t.numel() == 1:
-            t_vec = torch.ones(B, 1, device=u.device, dtype=torch.float32) * t
-        elif t.dim() == 1:
-            t_vec = t.unsqueeze(1).float()
-        else:
-            t_vec = t
-
-        # Format cond to [B, C] and combine with t
-        if cond is not None:
-            if cond.dim() == 4:
-                cond_vec = cond.mean(dim=[-1, -2]) # Or add a cond_encoder here too!
-            elif cond.dim() == 1:
-                cond_vec = cond.unsqueeze(1)
+        # 2. Build FiLM conditioning vector (only computed when FiLM layers are active)
+        if self.film is not None:
+            # Format t to [B, 1]
+            if t.dim() == 0 or t.numel() == 1:
+                t_vec = torch.ones(B, 1, device=u.device, dtype=torch.float32) * t
+            elif t.dim() == 1:
+                t_vec = t.unsqueeze(1).float()
             else:
-                cond_vec = cond
-            params = torch.cat([t_vec, cond_vec], dim=1).float()
-        else:
-            params = t_vec.float()
+                t_vec = t
 
-        # 3. (Optional) Legacy Early Fusion Fallback 
-        # If your UNet relies on spatial t/cond alongside FiLM, keep this. 
-        # Otherwise, x_in can just be passed straight to enc1.
+            if cond is not None:
+                if cond.dim() == 4:
+                    cond_vec = cond.mean(dim=[-1, -2])
+                elif cond.dim() == 1:
+                    cond_vec = cond.unsqueeze(1)
+                else:
+                    cond_vec = cond
+                params = torch.cat([t_vec, cond_vec], dim=1).float()
+            else:
+                params = t_vec.float()
+        else:
+            params = None
+
+        # 3. Spatial conditioning: concatenate cond channels into the input field
         if cond is not None and cond.dim() == 4:
             x_in = torch.cat([x_in, cond], dim=1)
             

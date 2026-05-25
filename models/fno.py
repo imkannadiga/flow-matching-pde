@@ -69,37 +69,45 @@ class FNO(PDEModel):
         out_channels=None,
         n_layers=4,
         periodic=False,
+        use_posn_embed: bool = True,
         **kwargs,
     ):
         super().__init__()
         self.vis_channels = int(vis_channels)
         self.out_channels = int(out_channels) if out_channels is not None else self.vis_channels
         self.coord_channels = int(coord_channels)
-        
+        self.cond_channels = int(cond_channels)
+        self.use_posn_embed = bool(use_posn_embed)
+
         if isinstance(modes, int):
             self.modes = (modes, modes)
         else:
             self.modes = modes[:2]
-            
-        # FiLM dimension: flow-matching time (1) + encoded cond
-        self.cond_dim = 1 + int(cond_channels)
 
-        # Learned spatial encoder: conv → global pool → [B, cond_channels].
-        # Raw mean-pooling loses spatial structure of fields like ν(x,y).
-        # A conv layer learns which spatial statistics matter before pooling.
-        if cond_channels > 0:
-            self.cond_encoder = nn.Sequential(
-                nn.Conv2d(int(cond_channels), int(cond_channels), kernel_size=3, padding=1),
-                nn.GELU(),
-                nn.AdaptiveAvgPool2d(1),
-                nn.Flatten(1),
-            )
+        # FiLM is conditioned on flow-matching time only.
+        # Conditioning fields (nu, beta, physical state, coords, …) are fused
+        # spatially by concatenating them into u_in before lifting, so the
+        # spectral convolutions have direct per-pixel access to all conditioning
+        # information.  This works identically for time-invariant PDEs (where
+        # cond = PDE parameters) and time-variant PDEs (where cond starts with
+        # the current physical state).
+        self.cond_dim = 1  # just flow-matching time τ
+
+        # Spatial input channels: u + cond + positional embedding (or
+        # pre-embedded coords from u) + τ broadcast
+        if self.coord_channels > 0:
+            # Caller embeds coords directly into u; no separate posn embed.
+            spatial_extra = self.coord_channels
+        elif self.use_posn_embed:
+            # Generate an internal linspace [0,1] x/y grid (2 channels).
+            # Set use_posn_embed=False when the dataset already provides
+            # coordinate channels inside cond (e.g. spatial_conditioning mode)
+            # to avoid duplicating position information.
+            spatial_extra = x_dim
         else:
-            self.cond_encoder = None
+            spatial_extra = 0
 
-        # Spatial input channels: u + pos_embed (or pre-embedded coords)
-        spatial_extra = self.coord_channels if self.coord_channels > 0 else x_dim
-        in_channels = self.vis_channels + spatial_extra + 1 # tau embedding
+        in_channels = self.vis_channels + self.cond_channels + spatial_extra + 1  # +1 for τ
 
         self.p = nn.Conv2d(in_channels, hidden_channels, 1)
 
@@ -107,7 +115,7 @@ class FNO(PDEModel):
             FNOBlock(hidden_channels, self.modes[0], self.modes[1], self.cond_dim)
             for _ in range(n_layers)
         ])
-        
+
         self.q = nn.Sequential(
             nn.Conv2d(hidden_channels, proj_channels, 1),
             nn.GELU(),
@@ -116,52 +124,58 @@ class FNO(PDEModel):
 
         if not periodic:
             self.periodic = False
-            self.padding_x = 16 # Hardcoded for now
-            self.padding_y = 16 # Hardcoded for now
+            self.padding_x = 16  # Hardcoded for now
+            self.padding_y = 16  # Hardcoded for now
 
     def forward(self, u, cond, t):
         batch_size = u.shape[0]
         dims = u.shape[2:]
 
-        # 1. Format flow-matching time → [B, 1]
+        # 1. Format flow-matching time τ → [B, 1]
         if t.dim() == 0 or t.numel() == 1:
             t = torch.ones(batch_size, 1, device=u.device, dtype=torch.float32) * t
         elif t.dim() == 1:
             t = t.unsqueeze(1).float()
 
-        # 2. Encode spatial cond [B, C, H, W] → [B, C] via learned conv+pool
-        if cond.dim() == 4:
-            cond = self.cond_encoder(cond.float()) if self.cond_encoder is not None \
-                   else cond.mean(dim=[-1, -2])
-        elif cond.dim() == 1:
-            cond = cond.unsqueeze(1)
+        # 2. FiLM conditioning vector: τ only.
+        #    Conditioning fields are fused spatially below (step 3).
+        cond_vector = t.float()  # [B, 1]
 
-        # 3. Unified FiLM conditioning vector: [t, encoded_cond]
-        cond_vector = torch.cat([t, cond], dim=1).float()
-
-        # 4. Build spatial input: u + positional embeddings
+        # 3. Build spatial input: u + (posn embed or pre-embedded coords) + cond
         if self.coord_channels > 0:
+            # Coords are expected as the last coord_channels channels of u.
             if u.shape[1] != self.vis_channels + self.coord_channels:
-                raise ValueError(f"Expected u with {self.vis_channels + self.coord_channels} channels.")
+                raise ValueError(
+                    f"Expected u with {self.vis_channels + self.coord_channels} channels "
+                    f"(vis + coord), got {u.shape[1]}."
+                )
             u_in = u.float().contiguous()
-        else:
+        elif self.use_posn_embed:
             posn = make_posn_embed(batch_size, dims).to(u.device)
             u_in = torch.cat((u, posn), dim=1).float().contiguous()
-        
-        # 5. Lift the spatial state
-        t = t_allhot(t, u_in.shape)
-        u_in = torch.cat((u_in, t), dim=1)
+        else:
+            # Dataset provides coordinate channels inside cond; skip internal embed.
+            u_in = u.float().contiguous()
+
+        # Concatenate conditioning spatially so spectral convolutions have
+        # full per-pixel access to all conditioning fields (nu, beta, state, …).
+        if cond is not None and cond.dim() == 4:
+            u_in = torch.cat((u_in, cond.float()), dim=1)
+
+        # 4. Append τ as a spatially broadcast channel, then lift.
+        t_spatial = t_allhot(t, u_in.shape)
+        u_in = torch.cat((u_in, t_spatial), dim=1)
 
         if not self.periodic:
             u_in = F.pad(u_in, (0, self.padding_y, 0, self.padding_x))
 
         x = self.p(u_in)
 
-        # 6. Pass through blocks with FiLM conditioning
+        # 5. Pass through FNO blocks with time-only FiLM conditioning.
         for block in self.blocks:
             x = block(x, cond_vector)
-        
+
         if not self.periodic:
             x = x[..., :-self.padding_x, :-self.padding_y]
-            
+
         return self.q(x)

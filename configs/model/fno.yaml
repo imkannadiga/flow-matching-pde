@@ -1,10 +1,16 @@
 _target_: models.fno.FNO
 
 name: fno
-modes: 32               
+modes: 32
 hidden_channels: 64
 proj_channels: 64
 x_dim: 2
-    
-n_layers: 4 
+
+n_layers: 4
 separable: true
+
+# Set to false when the dataset's conditioning tensor already contains x/y
+# coordinate channels (e.g. spatial_conditioning: true in Darcy Mode B, or
+# append_coords: true in SWE).  Prevents duplicating position information
+# that is already present in the cond spatial pathway.
+use_posn_embed: true

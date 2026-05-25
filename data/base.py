@@ -13,7 +13,7 @@ class BaseDataModule(Dataset, ABC):
 
     @abstractmethod
     def _fetch_data_pair(self, idx):
-        """Return (C, X_target) where C includes x_0 as its first channel(s)."""
+        """Return (C, X_target) where C is the full conditioning tensor for the model."""
         pass
 
     def _trajectory_count(self) -> int:

@@ -59,8 +59,8 @@ class DarcyDataModule(BaseDataModule):
         self.target_channels = self.pressure.shape[1]
 
         param_ch = 2 if (beta is not None and append_beta_channel) else 1
-        # c_channels = x_0 (zeros, same size as target) + nu (+ optional beta)
-        self.c_channels = self.target_channels + param_ch
+        # c_channels = nu (+ optional beta map)
+        self.c_channels = param_ch
 
         self._file_x_grids = None
         self._file_y_grids = None
@@ -108,8 +108,8 @@ class DarcyDataModule(BaseDataModule):
         self._sample_file_idx = sample_file_indices
 
         self.target_channels = self.pressure.shape[1]
-        # x_0 (zeros) + nu + beta + x-coord + y-coord
-        self.c_channels = self.target_channels + 4
+        # nu + beta + x-coord + y-coord
+        self.c_channels = 4
 
         self.beta = None
         self.append_beta_channel = False
@@ -132,8 +132,5 @@ class DarcyDataModule(BaseDataModule):
         elif self.beta is not None and self.append_beta_channel:
             beta_map = torch.full_like(C, self.beta)
             C = torch.cat([C, beta_map], dim=0)  # [2, D, D]
-
-        # x_0 is the first channel(s) of the conditioning
-        C = torch.cat([C], dim=0)
 
         return C, X_target

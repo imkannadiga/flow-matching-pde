@@ -1,3 +1,2 @@
 _target_: training.data_processors.FlowMatchingProcessor
 device: cuda
-state_channels: 1
