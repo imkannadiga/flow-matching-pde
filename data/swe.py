@@ -62,6 +62,10 @@ class SWEDataModule(BaseDataModule):
         self.preload = preload
         self.normalize_data = normalize_data
 
+        # _norm_stats[key] = (mean, std) computed once per trajectory at init.
+        # Avoids re-loading 101 timesteps per training sample when preload=False.
+        self._norm_stats: dict[str, tuple[float, float]] = {}
+
         with h5py.File(self.data_path, "r") as f:
             self._sample_keys: list[str] = sorted(k for k in f.keys())
             if not self._sample_keys:
@@ -82,11 +86,20 @@ class SWEDataModule(BaseDataModule):
                 self._cache: dict[str, torch.Tensor] = {}
                 for key in self._sample_keys:
                     arr = f[f"{key}/data"][:]
-                    self._cache[key] = (
-                        torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)
-                    )
+                    traj = torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)
+                    self._cache[key] = traj
+                    if normalize_data:
+                        self._norm_stats[key] = self._traj_stats(traj)
             else:
                 self._cache = None
+                if normalize_data:
+                    for key in self._sample_keys:
+                        arr = f[f"{key}/data"][:]
+                        vals = torch.tensor(arr, dtype=torch.float32)
+                        self._norm_stats[key] = (
+                            float(vals.mean()),
+                            float(vals.std().clamp(min=1e-8)),
+                        )
 
         if normalize_time:
             t_min, t_max = t_raw[0], t_raw[-1]
@@ -170,7 +183,7 @@ class SWEDataModule(BaseDataModule):
         _, _, H, W = traj.shape
 
         if self.normalize_data:
-            mean, std = self._traj_stats(traj)
+            mean, std = self._norm_stats[key]  # pre-cached at init — no recompute
             u_current = self._normalize(traj[t_idx],     mean, std)  # [1, H, W]
             u_next    = self._normalize(traj[t_idx + 1], mean, std)  # [1, H, W]
         else:
@@ -204,7 +217,7 @@ class SWEDataModule(BaseDataModule):
         T, _, H, W = traj.shape
 
         if self.normalize_data:
-            mean, std = self._traj_stats(traj)
+            mean, std = self._norm_stats[key]  # pre-cached at init — no recompute
             norm_traj = self._normalize(traj, mean, std)  # [T, 1, H, W]
         else:
             norm_traj = traj
