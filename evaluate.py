@@ -156,8 +156,18 @@ def main(cfg: DictConfig) -> None:
                     f"  {k}: mean={statistics.mean(v):.6f}  steps={len(v)}"
                 )
         else:
+            per_dataset = metrics.pop("per_dataset", None)
             for k, v in metrics.items():
                 accelerator.print(f"  {k}: {v:.6f}")
+            if per_dataset is not None:
+                accelerator.print("\n--- Per-Dataset Breakdown ---")
+                for dataset_label, dataset_metrics in per_dataset.items():
+                    metric_str = "  ".join(
+                        f"{k}: {v:.6f}" for k, v in dataset_metrics.items()
+                    )
+                    accelerator.print(f"  [{dataset_label}]  {metric_str}")
+            if per_dataset is not None:
+                metrics["per_dataset"] = per_dataset  # restore for JSON serialisation
 
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "eval_metrics.json").write_text(

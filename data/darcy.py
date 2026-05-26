@@ -117,6 +117,16 @@ class DarcyDataModule(BaseDataModule):
     def __len__(self) -> int:
         return self.nu.shape[0]
 
+    def _fetch_dataset_label(self, idx: int):
+        """Return e.g. ``'beta1.0'`` for each sample in multi-file mode; ``None`` in single-file mode."""
+        if self._sample_file_idx is None:
+            return None
+        file_idx = self._sample_file_idx[idx]
+        beta_val = self._file_betas[file_idx]
+        # Format nicely: strip trailing zeros so 1.0 → "1", 0.5 → "0.5"
+        beta_str = f"{beta_val:g}"
+        return f"beta{beta_str}"
+
     def _fetch_data_pair(self, idx: int):
         X_target = self.pressure[idx]
 

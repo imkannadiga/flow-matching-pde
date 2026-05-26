@@ -67,16 +67,20 @@ class SampleStore:
         pred: Tensor,
         true: Tensor,
         rollout: Optional[list[Tensor]] = None,
+        dataset_ids: Optional[list[str]] = None,
     ) -> None:
         """Reservoir-sample individual items from a batch.
 
         Parameters
         ----------
-        condition : Tensor [B, C_cond, H, W]
-        pred      : Tensor [B, C, H, W]
-        true      : Tensor [B, C, H, W]
-        rollout   : list of Tensor [B, C, H, W], optional
+        condition   : Tensor [B, C_cond, H, W]
+        pred        : Tensor [B, C, H, W]
+        true        : Tensor [B, C, H, W]
+        rollout     : list of Tensor [B, C, H, W], optional
             One tensor per integration step. Subsampled to ``rollout_length`` frames.
+        dataset_ids : list of str, optional
+            One label per sample in the batch (e.g. ``"beta1.0"``). Stored in each
+            entry under ``"dataset_id"`` for downstream per-dataset analysis.
         """
         B = pred.shape[0]
 
@@ -95,6 +99,8 @@ class SampleStore:
             }
             if trimmed_rollout is not None:
                 entry["rollout"] = [r[i].cpu() for r in trimmed_rollout]
+            if dataset_ids is not None:
+                entry["dataset_id"] = dataset_ids[i]
 
             if len(self._reservoir) < self.n_samples:
                 self._reservoir.append(entry)

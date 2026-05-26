@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Optional
 
 import torch
@@ -122,11 +123,29 @@ class FlowMatchingEvaluator:
         return self._evaluate_one_step(dataloader)
 
     @torch.no_grad()
-    def _evaluate_one_step(self, dataloader: DataLoader) -> dict[str, float]:
+    def _evaluate_one_step(self, dataloader: DataLoader) -> dict:
         """One-step evaluation for time-invariant PDEs (e.g. Darcy).
 
         Batches must yield: "x" [B, C_cond, H, W], "y" [B, C_out, H, W].
         The ODE starts from fresh Gaussian noise with the same shape as "y".
+
+        When the dataset provides a ``"dataset_id"`` field (a list of strings, one
+        per sample), per-dataset metrics are accumulated alongside the aggregate
+        metrics and returned under the ``"per_dataset"`` key:
+
+        .. code-block:: python
+
+            {
+                "rel_l2": 0.042,        # aggregate
+                "mse":    0.001,
+                "per_dataset": {
+                    "beta1.0": {"rel_l2": 0.038, "mse": 0.0009},
+                    "beta0.5": {"rel_l2": 0.047, "mse": 0.0012},
+                },
+            }
+
+        If no ``"dataset_id"`` is present the return value is the flat dict
+        produced by ``metric_tracker.compute_summary()`` (unchanged behaviour).
         """
         self.metrics.reset()
         if self.sample_store is not None:
@@ -134,12 +153,17 @@ class FlowMatchingEvaluator:
 
         collect = self.store_rollout and self.sample_store is not None
 
+        # Per-dataset tracker registry: lazily populated on first encounter.
+        per_dataset_trackers: dict[str, MetricTracker] = {}
+
         disable_pbar = self.accelerator is not None and not self.accelerator.is_local_main_process
         pbar = tqdm(dataloader, desc="Evaluating", unit="batch", disable=disable_pbar)
 
         for batch in pbar:
             condition = batch["x"].to(self.device)
             true_target = batch["y"].to(self.device)
+            # dataset_ids is a list[str] of length B when the dataset supplies labels.
+            dataset_ids: Optional[list[str]] = batch.get("dataset_id", None)
             noise = torch.randn_like(true_target)
 
             pred, rollout = self._integrate(condition, noise, collect_rollout=collect)
@@ -154,18 +178,45 @@ class FlowMatchingEvaluator:
             else:
                 gathered_cond = condition if self.sample_store is not None else None
 
+            # --- aggregate metrics ---
             self.metrics.update(pred, true_target)
+
+            # --- per-dataset metrics ---
+            if dataset_ids is not None:
+                # Group sample indices by label and update each tracker.
+                groups: dict[str, list[int]] = {}
+                for i, label in enumerate(dataset_ids):
+                    groups.setdefault(label, []).append(i)
+
+                for label, indices in groups.items():
+                    if label not in per_dataset_trackers:
+                        per_dataset_trackers[label] = copy.deepcopy(self.metrics)
+                        per_dataset_trackers[label].reset()
+                    idx_t = torch.tensor(indices, device=pred.device)
+                    per_dataset_trackers[label].update(
+                        pred[idx_t], true_target[idx_t]
+                    )
 
             if self.sample_store is not None:
                 if self.accelerator is None or self.accelerator.is_main_process:
-                    self.sample_store.maybe_store(gathered_cond, pred, true_target, rollout)
+                    self.sample_store.maybe_store(
+                        gathered_cond, pred, true_target, rollout, dataset_ids
+                    )
 
         if self.sample_store is not None:
             is_main = self.accelerator is None or self.accelerator.is_main_process
             if is_main:
                 self.sample_store.save()
 
-        return self.metrics.compute_summary()
+        result = self.metrics.compute_summary()
+
+        if per_dataset_trackers:
+            result["per_dataset"] = {
+                label: tracker.compute_summary()
+                for label, tracker in sorted(per_dataset_trackers.items())
+            }
+
+        return result
 
     @torch.no_grad()
     def _evaluate_rollout(self, dataloader: DataLoader) -> dict[str, list[float]]:
