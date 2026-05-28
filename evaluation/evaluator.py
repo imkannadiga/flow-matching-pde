@@ -80,6 +80,29 @@ class FlowMatchingEvaluator:
         p = next(iter(self.model.parameters()), None)
         return p.device if p is not None else torch.device("cpu")
 
+    def _gather_string_ids(self, dataset_ids: Optional[list[str]]) -> Optional[list[str]]:
+        """Gather string labels across all processes into a single consistent list.
+
+        Strings are encoded as fixed-width uint8 byte tensors, gathered via
+        ``accelerator.gather_for_metrics``, then decoded back to strings.
+        """
+        if dataset_ids is None or self.accelerator is None:
+            return dataset_ids
+
+        _MAX_LEN = 64
+
+        def _encode(s: str) -> torch.Tensor:
+            raw = s.encode("utf-8")[:_MAX_LEN]
+            padded = raw + b"\x00" * (_MAX_LEN - len(raw))
+            return torch.tensor(list(padded), dtype=torch.uint8, device=self.device)
+
+        def _decode(t: torch.Tensor) -> str:
+            return bytes(t.cpu().tolist()).rstrip(b"\x00").decode("utf-8")
+
+        ids_tensor = torch.stack([_encode(s) for s in dataset_ids])      # [B, 64]
+        gathered   = self.accelerator.gather_for_metrics(ids_tensor)      # [B*N, 64]
+        return [_decode(gathered[i]) for i in range(gathered.shape[0])]
+
     def _make_model_fn(self, condition: Optional[Tensor]):
         def model_fn(t: float, x: Tensor) -> Tensor:
             t_tensor = torch.full((x.shape[0],), t, device=x.device, dtype=x.dtype)
@@ -175,17 +198,19 @@ class FlowMatchingEvaluator:
                     if self.sample_store is not None
                     else None
                 )
+                # Gather string labels so they match the gathered tensor length.
+                gathered_dataset_ids = self._gather_string_ids(dataset_ids)
             else:
                 gathered_cond = condition if self.sample_store is not None else None
+                gathered_dataset_ids = dataset_ids
 
             # --- aggregate metrics ---
             self.metrics.update(pred, true_target)
 
             # --- per-dataset metrics ---
-            if dataset_ids is not None:
-                # Group sample indices by label and update each tracker.
+            if gathered_dataset_ids is not None:
                 groups: dict[str, list[int]] = {}
-                for i, label in enumerate(dataset_ids):
+                for i, label in enumerate(gathered_dataset_ids):
                     groups.setdefault(label, []).append(i)
 
                 for label, indices in groups.items():
@@ -200,7 +225,7 @@ class FlowMatchingEvaluator:
             if self.sample_store is not None:
                 if self.accelerator is None or self.accelerator.is_main_process:
                     self.sample_store.maybe_store(
-                        gathered_cond, pred, true_target, rollout, dataset_ids
+                        gathered_cond, pred, true_target, rollout, gathered_dataset_ids
                     )
 
         if self.sample_store is not None:
