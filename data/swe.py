@@ -129,7 +129,7 @@ class SWEDataModule(BaseDataModule):
         data_mtime = os.path.getmtime(self.data_path)
 
         if cache_path.exists():
-            cached = torch.load(cache_path, weights_only=True)
+            cached = torch.load(cache_path, weights_only=False)
             if cached.get("source_mtime") == data_mtime:
                 return float(cached["mean"]), float(cached["std"])
 
