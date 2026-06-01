@@ -90,8 +90,17 @@ class SWEDataModule(BaseDataModule):
 
         if normalize_data:
             self._global_mean, self._global_std = self._compute_or_load_global_stats()
+            if self._cache is not None:
+                for key in self._cache:
+                    self._cache[key] = self._normalize(
+                        self._cache[key], self._global_mean, self._global_std
+                    )
+                self._prenormalized = True
+            else:
+                self._prenormalized = False
         else:
             self._global_mean = self._global_std = None
+            self._prenormalized = False
 
         if normalize_time:
             t_min, t_max = t_raw[0], t_raw[-1]
@@ -214,7 +223,7 @@ class SWEDataModule(BaseDataModule):
         traj = self._load_trajectory(key)  # [T, 1, H, W]
         _, _, H, W = traj.shape
 
-        if self.normalize_data:
+        if self.normalize_data and not self._prenormalized:
             u_current = self._normalize(traj[t_idx],     self._global_mean, self._global_std)
             u_next    = self._normalize(traj[t_idx + 1], self._global_mean, self._global_std)
         else:
@@ -247,7 +256,7 @@ class SWEDataModule(BaseDataModule):
         traj = self._load_trajectory(key)  # [T, 1, H, W]
         T, _, H, W = traj.shape
 
-        if self.normalize_data:
+        if self.normalize_data and not self._prenormalized:
             norm_traj = self._normalize(traj, self._global_mean, self._global_std)
         else:
             norm_traj = traj

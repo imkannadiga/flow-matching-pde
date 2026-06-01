@@ -56,6 +56,8 @@ class DarcyDataModule(BaseDataModule):
             self._nu_std        = stats["std_nu"]
             self._pressure_mean = stats["mean_pressure"]
             self._pressure_std  = stats["std_pressure"]
+            self.nu       = (self.nu       - self._nu_mean)       / self._nu_std
+            self.pressure = (self.pressure - self._pressure_mean) / self._pressure_std
         else:
             self._nu_mean = self._nu_std = self._pressure_mean = self._pressure_std = None
 
@@ -191,12 +193,8 @@ class DarcyDataModule(BaseDataModule):
         return f"beta{beta_str}"
 
     def _fetch_data_pair(self, idx: int):
-        nu       = self.nu[idx]        # [1, D, D]
+        nu       = self.nu[idx]        # [1, D, D] — already normalized at init if normalize_data
         pressure = self.pressure[idx]
-
-        if self.normalize_data:
-            nu       = (nu       - self._nu_mean)       / self._nu_std
-            pressure = (pressure - self._pressure_mean) / self._pressure_std
 
         C = nu
 
