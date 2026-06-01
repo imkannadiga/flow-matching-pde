@@ -1,5 +1,7 @@
+import os
 import h5py
 import torch
+from pathlib import Path
 
 from data.base import BaseDataModule
 
@@ -31,16 +33,15 @@ class SWEDataModule(BaseDataModule):
 
     Data normalization
     ------------------
-    When ``normalize_data=True``, each trajectory is z-score normalized using its
-    own mean and std computed over all T × H × W values.  This is per-trajectory
-    normalization — no global dataset scan is needed.  It aligns each sample's
-    distribution with the N(0,1) flow-matching noise, which is critical: without
-    it the model sees a positively-biased signal (h ∈ [0.2, 2.5]) while noise is
-    zero-centred, causing the characteristic grid artifact at step 0.
+    When ``normalize_data=True``, samples are z-score normalized using global dataset
+    statistics (mean and std computed over all trajectories, timesteps, and spatial points).
+    Stats are computed once on the first run and cached to disk alongside the data file
+    (``<stem>.global_stats.pt``); subsequent runs with the same file load from cache instantly.
+    The cache is invalidated automatically when the data file's modification time changes.
 
-    Both the state channel in conditioning and the target are normalized with the
-    same trajectory-level stats; extra conditions (t_phys_map, coords) are left
-    in their natural range and are NOT normalized.
+    Both the state channel in conditioning and the target are normalized with the same global
+    stats; extra conditions (t_phys_map, coords) are left in their natural range and are NOT
+    normalized.
     """
 
     def __init__(
@@ -61,10 +62,6 @@ class SWEDataModule(BaseDataModule):
         self.append_coords = append_coords
         self.preload = preload
         self.normalize_data = normalize_data
-
-        # _norm_stats[key] = (mean, std) computed once per trajectory at init.
-        # Avoids re-loading 101 timesteps per training sample when preload=False.
-        self._norm_stats: dict[str, tuple[float, float]] = {}
 
         with h5py.File(self.data_path, "r") as f:
             self._sample_keys: list[str] = sorted(k for k in f.keys())
@@ -88,18 +85,13 @@ class SWEDataModule(BaseDataModule):
                     arr = f[f"{key}/data"][:]
                     traj = torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)
                     self._cache[key] = traj
-                    if normalize_data:
-                        self._norm_stats[key] = self._traj_stats(traj)
             else:
                 self._cache = None
-                if normalize_data:
-                    for key in self._sample_keys:
-                        arr = f[f"{key}/data"][:]
-                        vals = torch.tensor(arr, dtype=torch.float32)
-                        self._norm_stats[key] = (
-                            float(vals.mean()),
-                            float(vals.std().clamp(min=1e-8)),
-                        )
+
+        if normalize_data:
+            self._global_mean, self._global_std = self._compute_or_load_global_stats()
+        else:
+            self._global_mean = self._global_std = None
 
         if normalize_time:
             t_min, t_max = t_raw[0], t_raw[-1]
@@ -114,20 +106,62 @@ class SWEDataModule(BaseDataModule):
 
         time_ch = 1 if append_physical_time else 0
         coord_ch = 2 if append_coords else 0
-        # c_channels = u_current (state) + extra conditions
         self.c_channels = 1 + time_ch + coord_ch
         self.target_channels = 1
 
     # ------------------------------------------------------------------
-    # Per-trajectory normalization helpers
+    # Global normalization helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _traj_stats(traj: torch.Tensor) -> tuple[float, float]:
-        """Mean and std of a full trajectory [T, 1, H, W] over all elements."""
-        mean = traj.mean().item()
-        std  = traj.std().clamp(min=1e-8).item()
-        return mean, std
+    def _stats_cache_path(data_path: str) -> Path:
+        p = Path(data_path)
+        return p.parent / f"{p.stem}.global_stats.pt"
+
+    def _compute_or_load_global_stats(self) -> tuple[float, float]:
+        """Return (mean, std) over the entire dataset, loading from cache when available.
+
+        Uses Welford-style online accumulation so only one trajectory is in memory at a
+        time when preload=False.  The cache is keyed on the data file's mtime, so it is
+        invalidated automatically if the file is replaced.
+        """
+        cache_path = self._stats_cache_path(self.data_path)
+        data_mtime = os.path.getmtime(self.data_path)
+
+        if cache_path.exists():
+            cached = torch.load(cache_path, weights_only=True)
+            if cached.get("source_mtime") == data_mtime:
+                return float(cached["mean"]), float(cached["std"])
+
+        print(f"[SWEDataModule] Computing global normalization stats for {self.data_path} ...")
+
+        total_sum = 0.0
+        total_sq_sum = 0.0
+        total_count = 0
+
+        if self._cache is not None:
+            for traj in self._cache.values():
+                vals = traj.double()
+                total_sum    += vals.sum().item()
+                total_sq_sum += (vals ** 2).sum().item()
+                total_count  += vals.numel()
+        else:
+            with h5py.File(self.data_path, "r") as f:
+                for key in self._sample_keys:
+                    arr = f[f"{key}/data"][:].astype("float64")
+                    total_sum    += arr.sum()
+                    total_sq_sum += (arr ** 2).sum()
+                    total_count  += arr.size
+
+        mean = total_sum / total_count
+        std  = max((total_sq_sum / total_count - mean ** 2) ** 0.5, 1e-8)
+
+        try:
+            torch.save({"mean": mean, "std": std, "source_mtime": data_mtime}, cache_path)
+        except OSError:
+            pass  # read-only filesystem — recompute next time
+
+        return float(mean), float(std)
 
     @staticmethod
     def _normalize(u: torch.Tensor, mean: float, std: float) -> torch.Tensor:
@@ -135,7 +169,6 @@ class SWEDataModule(BaseDataModule):
 
     @staticmethod
     def _denormalize(u: torch.Tensor, mean: float, std: float) -> torch.Tensor:
-        """Invert per-trajectory normalization — use on model output before plotting."""
         return u * std + mean
 
     def _load_trajectory(self, key: str) -> torch.Tensor:
@@ -174,18 +207,16 @@ class SWEDataModule(BaseDataModule):
         C  [c_channels, H, W]  — conditioning: [u(t_phys), t_phys_map?, x_coord?, y_coord?]
         X_target  [1, H, W]    — ground-truth next state u(t_phys + Δt)
 
-        State channels are z-score normalized using per-trajectory stats; extra
-        conditions (t_phys_map, coords) are left in their natural range and are
-        NOT normalized.
+        State channels are z-score normalized using global dataset stats; extra
+        conditions (t_phys_map, coords) are left in their natural range and are NOT normalized.
         """
         key, t_idx = self._index[idx]
         traj = self._load_trajectory(key)  # [T, 1, H, W]
         _, _, H, W = traj.shape
 
         if self.normalize_data:
-            mean, std = self._norm_stats[key]  # pre-cached at init — no recompute
-            u_current = self._normalize(traj[t_idx],     mean, std)  # [1, H, W]
-            u_next    = self._normalize(traj[t_idx + 1], mean, std)  # [1, H, W]
+            u_current = self._normalize(traj[t_idx],     self._global_mean, self._global_std)
+            u_next    = self._normalize(traj[t_idx + 1], self._global_mean, self._global_std)
         else:
             u_current = traj[t_idx]
             u_next    = traj[t_idx + 1]
@@ -217,8 +248,7 @@ class SWEDataModule(BaseDataModule):
         T, _, H, W = traj.shape
 
         if self.normalize_data:
-            mean, std = self._norm_stats[key]  # pre-cached at init — no recompute
-            norm_traj = self._normalize(traj, mean, std)  # [T, 1, H, W]
+            norm_traj = self._normalize(traj, self._global_mean, self._global_std)
         else:
             norm_traj = traj
 
