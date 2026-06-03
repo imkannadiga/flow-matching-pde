@@ -42,6 +42,15 @@ class SWEDataModule(BaseDataModule):
     Both the state channel in conditioning and the target are normalized with the same global
     stats; extra conditions (t_phys_map, coords) are left in their natural range and are NOT
     normalized.
+
+    I/O strategy
+    ------------
+    preload=True  — full dataset loaded into RAM at init, then normalized in-place.
+                    __getitem__ is a pure tensor slice; zero I/O during training.
+    preload=False — HDF5 is read lazily. Each training sample reads exactly 2 consecutive
+                    frames (not the full trajectory) using an h5py hyperslab select, keeping
+                    per-sample I/O minimal. A file handle is kept open per worker process to
+                    avoid repeated open/close overhead across samples.
     """
 
     def __init__(
@@ -95,12 +104,8 @@ class SWEDataModule(BaseDataModule):
                     self._cache[key] = self._normalize(
                         self._cache[key], self._global_mean, self._global_std
                     )
-                self._prenormalized = True
-            else:
-                self._prenormalized = False
         else:
             self._global_mean = self._global_std = None
-            self._prenormalized = False
 
         if normalize_time:
             t_min, t_max = t_raw[0], t_raw[-1]
@@ -119,6 +124,21 @@ class SWEDataModule(BaseDataModule):
         self.target_channels = 1
 
     # ------------------------------------------------------------------
+    # HDF5 access
+    # ------------------------------------------------------------------
+
+    def _get_h5(self) -> h5py.File:
+        """Return a process-local HDF5 file handle, opening it on first access.
+
+        Never called when preload=True (cache covers all reads).  With DataLoader
+        workers, each forked process opens its own handle here rather than
+        inheriting a shared one from the parent, which is not safe with h5py.
+        """
+        if not hasattr(self, "_h5_handle") or self._h5_handle is None:
+            self._h5_handle = h5py.File(self.data_path, "r")
+        return self._h5_handle
+
+    # ------------------------------------------------------------------
     # Global normalization helpers
     # ------------------------------------------------------------------
 
@@ -130,8 +150,8 @@ class SWEDataModule(BaseDataModule):
     def _compute_or_load_global_stats(self) -> tuple[float, float]:
         """Return (mean, std) over the entire dataset, loading from cache when available.
 
-        Uses Welford-style online accumulation so only one trajectory is in memory at a
-        time when preload=False.  The cache is keyed on the data file's mtime, so it is
+        Uses online accumulation so only one trajectory is in memory at a time when
+        preload=False.  The cache is keyed on the data file's mtime, so it is
         invalidated automatically if the file is replaced.
         """
         cache_path = self._stats_cache_path(self.data_path)
@@ -180,13 +200,6 @@ class SWEDataModule(BaseDataModule):
     def _denormalize(u: torch.Tensor, mean: float, std: float) -> torch.Tensor:
         return u * std + mean
 
-    def _load_trajectory(self, key: str) -> torch.Tensor:
-        if self._cache is not None:
-            return self._cache[key]
-        with h5py.File(self.data_path, "r") as f:
-            arr = f[f"{key}/data"][:]
-        return torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)  # (T, 1, H, W)
-
     def _build_extra_conditions(self, t_idx: int, H: int, W: int) -> torch.Tensor:
         """Build non-state conditioning channels for one physical time step.
 
@@ -220,19 +233,26 @@ class SWEDataModule(BaseDataModule):
         conditions (t_phys_map, coords) are left in their natural range and are NOT normalized.
         """
         key, t_idx = self._index[idx]
-        traj = self._load_trajectory(key)  # [T, 1, H, W]
-        _, _, H, W = traj.shape
 
-        if self.normalize_data and not self._prenormalized:
-            u_current = self._normalize(traj[t_idx],     self._global_mean, self._global_std)
-            u_next    = self._normalize(traj[t_idx + 1], self._global_mean, self._global_std)
-        else:
+        if self._cache is not None:
+            # preload=True: entire dataset in RAM, already normalized at init.
+            traj = self._cache[key]
+            H, W = traj.shape[2], traj.shape[3]
             u_current = traj[t_idx]
             u_next    = traj[t_idx + 1]
+        else:
+            # preload=False: read only the 2 needed frames — not the full trajectory.
+            arr = self._get_h5()[f"{key}/data"][t_idx : t_idx + 2]  # (2, H, W, 1)
+            frames = torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)  # (2, 1, H, W)
+            H, W = frames.shape[2], frames.shape[3]
+            u_current = frames[0]
+            u_next    = frames[1]
+            if self.normalize_data:
+                u_current = self._normalize(u_current, self._global_mean, self._global_std)
+                u_next    = self._normalize(u_next,    self._global_mean, self._global_std)
 
         extra = self._build_extra_conditions(t_idx, H, W)  # [C_extra, H, W]
         C = torch.cat([u_current, extra], dim=0) if extra.shape[0] > 0 else u_current
-
         return C, u_next
 
     def _trajectory_count(self) -> int:
@@ -248,18 +268,18 @@ class SWEDataModule(BaseDataModule):
           'conditions'    [T-1, C_extra, H, W]  extra conditioning per step (no state channel)
           'targets'       [T-1, 1, H, W]        ground-truth states u(t=1)..u(t=T-1)
           'time_schedule' [T-1]                 physical time value at each step
-
-        The evaluator prepends the current predicted state to conditions[t] at each
-        rollout step, matching the layout produced by _fetch_data_pair during training.
         """
         key = self._sample_keys[idx]
-        traj = self._load_trajectory(key)  # [T, 1, H, W]
-        T, _, H, W = traj.shape
 
-        if self.normalize_data and not self._prenormalized:
-            norm_traj = self._normalize(traj, self._global_mean, self._global_std)
+        if self._cache is not None:
+            traj = self._cache[key]  # already normalized
         else:
-            norm_traj = traj
+            arr = self._get_h5()[f"{key}/data"][:]
+            traj = torch.tensor(arr, dtype=torch.float32).permute(0, 3, 1, 2)
+            if self.normalize_data:
+                traj = self._normalize(traj, self._global_mean, self._global_std)
+
+        T, _, H, W = traj.shape
 
         conditions = torch.stack([
             self._build_extra_conditions(t, H, W)
@@ -267,8 +287,8 @@ class SWEDataModule(BaseDataModule):
         ])  # [T-1, C_extra, H, W]
 
         return {
-            "x_0":           norm_traj[0],
+            "x_0":           traj[0],
             "conditions":    conditions,
-            "targets":       norm_traj[1:],
+            "targets":       traj[1:],
             "time_schedule": self._t_grid[:-1].clone(),
         }
