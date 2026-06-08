@@ -40,12 +40,6 @@ pre_train_processor:
   coord_normalize: neg1_1
 
 loss:
-  # Relative L2 (per-sample normalized) is much better than MSE-sum for flow
-  # matching: the velocity target v = x1 - x_noise has large high-freq energy
-  # from x_noise; relative L2 suppresses those noisy gradient components.
-  _target_: training.trainer.LpLoss
-  d: 2
-  p: 2
-  reduction: true
-  size_average: true
+  _target_: torch.nn.MSELoss
+  reduction: sum
 
