@@ -138,8 +138,16 @@ def _build_tests(
         accelerator=accelerator,
     ))
 
-    # --- Rollout test (when trajectory loader was built) ---
-    if "val_traj" in test_loaders:
+    # --- Rollout test (when data.rollout_val=true) ---
+    # time-variate (SWE): uses the dedicated "val_traj" trajectory loader.
+    # time-invariant (Darcy): reuses the standard val loader — its format
+    #   {"x": C, "y": y} is exactly what _evaluate_one_step() expects.
+    rollout_val = bool(OmegaConf.select(cfg, "data.rollout_val", default=False))
+    time_variate = bool(OmegaConf.select(cfg, "data.time_variate", default=False))
+
+    if rollout_val:
+        rollout_loader = test_loaders.get("val_traj", test_loaders["val"])
+
         rollout_eval_cfg = OmegaConf.select(cfg, "trainer.rollout_eval", default=None)
         if rollout_eval_cfg is not None:
             solver = instantiate(rollout_eval_cfg.solver)
@@ -155,10 +163,10 @@ def _build_tests(
             solver=solver,
             metric_tracker=metric_tracker,
             accelerator=accelerator,
-            time_variate=True,
+            time_variate=time_variate,
         )
         tests.append(RolloutTest(
-            loader=test_loaders["val_traj"],
+            loader=rollout_loader,
             evaluator=evaluator,
         ))
 

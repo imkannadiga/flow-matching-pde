@@ -176,6 +176,8 @@ def _print_metrics(metrics: dict[str, Any]) -> None:
         if isinstance(v, list):
             mean = sum(v) / len(v) if v else float("nan")
             parts.append(f"{k}/mean={mean:.4f}")
+        elif isinstance(v, dict):
+            pass  # per_dataset breakdown — omit from console to keep output concise
         else:
             try:
                 parts.append(f"{k}={_to_float(v):.4f}")
@@ -194,6 +196,17 @@ def _log_to_wandb(metrics: dict[str, Any], step: int) -> None:
                 payload[f"{k}/t{t:03d}"] = float(val)
             if v:
                 payload[f"{k}/mean"] = sum(v) / len(v)
+        elif isinstance(v, dict):
+            # Per-dataset breakdown returned by _evaluate_one_step when dataset_id
+            # labels are present (e.g. multi-file Darcy).
+            # Logged as "{prefix}/per_dataset/{label}/{metric}".
+            for label, label_metrics in v.items():
+                if isinstance(label_metrics, dict):
+                    for metric_k, metric_v in label_metrics.items():
+                        try:
+                            payload[f"{k}/{label}/{metric_k}"] = _to_float(metric_v)
+                        except (TypeError, ValueError):
+                            pass
         else:
             try:
                 payload[k] = _to_float(v)
