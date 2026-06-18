@@ -39,3 +39,12 @@ time_variate: true
 # so no global dataset scan is needed.  This aligns each trajectory with the N(0,1)
 # flow-matching noise and eliminates the grid artifact at rollout step 0.
 normalize_data: true
+
+# --- Rollout validation during training ---
+# When true, _build_loaders() instantiates a second dataset in eval mode and
+# provides a "val_traj" loader for RolloutTest.  Requires time_variate=true.
+rollout_val: false
+# Number of trajectories drawn from the val split for rollout evaluation.
+rollout_val_samples: 64
+# Batch size for the trajectory loader (rollout is memory-heavy; keep small).
+rollout_val_batch_size: 64

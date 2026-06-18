@@ -1,7 +1,7 @@
 _target_: models.fno.FNO
 
 name: fno
-modes: 32 
+modes: 48 
 hidden_channels: 64 
 proj_channels: 64
 x_dim: 2

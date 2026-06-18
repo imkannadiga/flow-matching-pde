@@ -6,7 +6,7 @@ from models.film import FiLMLayer
 
 
 class UNet(PDEModel):
-    """U-Net for time-conditioned field maps; optional extra ``coord`` channels (Sprint 2+)."""
+    """U-Net for time-conditioned field maps; optional extra ``coord`` channels """
 
     def __init__(
         self,
@@ -102,24 +102,11 @@ class UNet(PDEModel):
 
         # 2. Build FiLM conditioning vector (only computed when FiLM layers are active)
         if self.film is not None:
-            # Format t to [B, 1]
-            if t.dim() == 0 or t.numel() == 1:
-                t_vec = torch.ones(B, 1, device=u.device, dtype=torch.float32) * t
-            elif t.dim() == 1:
-                t_vec = t.unsqueeze(1).float()
+            t_spatial = t.view(B, 1, 1, 1).expand(B, 1, H, W).float()
+            if cond is not None and cond.dim() == 4:
+                params = torch.cat([t_spatial, cond.float()], dim=1)
             else:
-                t_vec = t
-
-            if cond is not None:
-                if cond.dim() == 4:
-                    cond_vec = cond.mean(dim=[-1, -2])
-                elif cond.dim() == 1:
-                    cond_vec = cond.unsqueeze(1)
-                else:
-                    cond_vec = cond
-                params = torch.cat([t_vec, cond_vec], dim=1).float()
-            else:
-                params = t_vec.float()
+                params = t_spatial
         else:
             params = None
 

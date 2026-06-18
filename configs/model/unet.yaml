@@ -4,4 +4,4 @@ name: unet
 
 base_channels: 64
 coord_channels: 0
-film_param_dim: 0
+film_param_dim: 3

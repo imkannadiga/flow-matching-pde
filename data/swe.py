@@ -23,7 +23,7 @@ class SWEDataModule(BaseDataModule):
 
     Eval mode (eval=True)
     ---------------------
-    Returns one item per trajectory. The evaluator concatenates the current predicted state
+    Returns one item per trajectory (t=0). The evaluator concatenates the current predicted state
     with the extra conditions at each rollout step to match the training conditioning layout.
 
     Physical time vs flow-matching time

@@ -10,7 +10,6 @@ from torch import nn
 from tqdm import tqdm
 from accelerate import Accelerator
 
-# Only import wandb and use if installed
 wandb_available = False
 try:
     import wandb
@@ -18,6 +17,7 @@ try:
 except ModuleNotFoundError:
     pass
 
+from .testing import BaseTest, test_model
 from .training_state import load_training_state, save_training_state
 
 
@@ -55,37 +55,41 @@ def _wandb_histogram_param(tensor: torch.Tensor):
 
 
 class Trainer:
-    """A general Trainer class to train models on given datasets."""
-    
+    """Trains a model for a fixed number of epochs.
+
+    At every ``eval_interval`` epoch the trainer delegates to ``test_model()``,
+    passing the registered ``tests`` list.  Each test is fully self-contained
+    (it closes over its own dataloader and dependencies) so the trainer has no
+    knowledge of evaluation internals.
+    """
+
     def __init__(
         self,
         model: nn.Module,
         n_epochs: int,
         wandb_log: bool = False,
-        device: str = 'cpu',  # Note: Overridden by accelerator
+        device: str = 'cpu',
         mixed_precision: bool = False,
         pre_train_processor: Optional[nn.Module] = None,
         eval_interval: int = 1,
-        log_output: bool = False,
-        use_distributed: bool = False,
         verbose: bool = False,
         gradient_accumulation_steps: int = 1,
         accelerator: Optional[Accelerator] = None,
-        **kwargs
+        tests: Optional[list[BaseTest]] = None,
+        **kwargs,
     ):
         self.model = model
         self.n_epochs = n_epochs
         self.wandb_log = wandb_available and wandb_log and wandb.run is not None
         self.eval_interval = eval_interval
-        self.log_output = log_output
         self.verbose = verbose
-        self.use_distributed = use_distributed
-        
+
         self.accelerator = accelerator or Accelerator()
         self.device = self.accelerator.device
         self.mixed_precision = mixed_precision
         self.data_processor = pre_train_processor
-        
+        self.tests = tests or []
+
         if int(gradient_accumulation_steps) < 1:
             raise ValueError("gradient_accumulation_steps must be >= 1")
         self.gradient_accumulation_steps = int(gradient_accumulation_steps)
@@ -96,25 +100,28 @@ class Trainer:
         return self.accelerator.is_main_process
 
     def _prepare_sample(self, sample: dict, step: Optional[int] = None) -> dict:
-        """Helper to centralize data processing and device transfer."""
         if self.data_processor is not None:
             kwargs = {'step': step} if step is not None else {}
             return self.data_processor.preprocess(sample, **kwargs)
         return {k: v.to(self.device) for k, v in sample.items() if torch.is_tensor(v)}
 
     def _postprocess_output(self, out: torch.Tensor, sample: dict, step: Optional[int] = None):
-        """Helper to centralize data post-processing."""
         if self.data_processor is not None:
             kwargs = {'step': step} if step is not None else {}
             return self.data_processor.postprocess(out, sample, **kwargs)
         return out, sample
 
     def train(
-        self, train_loader, test_loaders, optimizer, scheduler,
-        regularizer=None, training_loss=None, eval_losses=None, eval_modes=None,
-        save_every: int=None, save_best: str=None,
-        save_dir: Union[str, Path]="./ckpt", resume_from_dir: Union[str, Path]=None,
-        max_autoregressive_steps: int=None,
+        self,
+        train_loader,
+        optimizer,
+        scheduler,
+        regularizer=None,
+        training_loss=None,
+        save_every: int = None,
+        save_best: str = None,
+        save_dir: Union[str, Path] = "./ckpt",
+        resume_from_dir: Union[str, Path] = None,
     ):
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -129,38 +136,51 @@ class Trainer:
         if getattr(training_loss, 'reduction', None) == "mean":
             warnings.warn(f"{training_loss.reduction=}. The Trainer expects losses to sum across the batch dim.")
 
-        eval_losses = eval_losses or dict(l2=training_loss)
-        eval_modes = eval_modes or {}
-        
         self.model = self.model.to(self.device)
         if self.data_processor is not None:
             self.data_processor = self.data_processor.to(self.device)
-        
+
         if self.save_best:
             best_metric_value = float('inf')
-            self.save_every = None  # Exclusive for simplicity
-            expected_metrics = [f"{n}_{m}" for n in test_loaders for m in eval_losses]
-            assert self.save_best in expected_metrics, f"Expected metric from {expected_metrics}, got {save_best}"
+            self.save_every = None
 
         if self.verbose and self._is_main:
             print(f'Training on {len(train_loader.dataset)} samples')
-            print(f'Testing on {[len(l.dataset) for l in test_loaders.values()]} samples on resolutions {list(test_loaders.keys())}.')
             sys.stdout.flush()
-        
+
+        epoch_metrics: dict = {}
         for epoch in range(self.start_epoch, self.n_epochs):
-            train_err, avg_loss, avg_lasso_loss, epoch_train_time = self.train_one_epoch(epoch, train_loader, training_loss)
-            epoch_metrics = dict(train_err=train_err, avg_loss=avg_loss, avg_lasso_loss=avg_lasso_loss, epoch_train_time=epoch_train_time)
+            train_err, avg_loss, avg_lasso_loss, epoch_train_time = self.train_one_epoch(
+                epoch, train_loader, training_loss
+            )
+            epoch_metrics = dict(
+                train_err=train_err,
+                avg_loss=avg_loss,
+                avg_lasso_loss=avg_lasso_loss,
+                epoch_train_time=epoch_train_time,
+            )
 
             if self.wandb_log:
                 self._wandb_log_model_parameters(epoch + 1)
 
-            if epoch % self.eval_interval == 0:
-                eval_metrics = self.evaluate_all(epoch, eval_losses, test_loaders, eval_modes, max_autoregressive_steps)
+            if epoch % self.eval_interval == 0 and self.tests:
+                eval_metrics = test_model(
+                    self.model,
+                    self.tests,
+                    epoch,
+                    wandb_log=self.wandb_log,
+                    is_main=self._is_main,
+                    verbose=self.verbose,
+                )
                 epoch_metrics.update(eval_metrics)
-                
-                if self.save_best and eval_metrics[self.save_best] < best_metric_value:
-                    best_metric_value = eval_metrics[self.save_best]
-                    self.checkpoint(save_dir)
+
+                if self.save_best:
+                    metric_val = eval_metrics.get(self.save_best, float('inf'))
+                    if isinstance(metric_val, list):
+                        metric_val = sum(metric_val) / len(metric_val) if metric_val else float('inf')
+                    if metric_val < best_metric_value:
+                        best_metric_value = metric_val
+                        self.checkpoint(save_dir)
 
             if self.save_every and epoch % self.save_every == 0:
                 self.checkpoint(save_dir)
@@ -173,14 +193,18 @@ class Trainer:
     def train_one_epoch(self, epoch, train_loader, training_loss):
         self.epoch = epoch
         self.model.train()
-        if self.data_processor: self.data_processor.train()
-        
+        if self.data_processor:
+            self.data_processor.train()
+
         avg_loss = avg_lasso_loss = train_err = 0.0
         self.n_samples = 0
         t1 = default_timer()
 
         self.optimizer.zero_grad(set_to_none=True)
-        batch_iter = tqdm(train_loader, desc=f"Train epoch {epoch+1}/{self.n_epochs}", leave=True, unit="batch") if self._is_main else train_loader
+        batch_iter = (
+            tqdm(train_loader, desc=f"Train epoch {epoch+1}/{self.n_epochs}", leave=True, unit="batch")
+            if self._is_main else train_loader
+        )
 
         grad_norms, last_grad_payload = [], {}
 
@@ -189,7 +213,6 @@ class Trainer:
                 loss = self._compute_training_loss(idx, sample, training_loss)
                 self.accelerator.backward(loss)
 
-                # W&B Gradient metrics capture
                 if self.accelerator.sync_gradients and self.wandb_log and self._is_main:
                     norm, payload = self._capture_grad_metrics()
                     grad_norms.append(norm)
@@ -205,7 +228,6 @@ class Trainer:
                 if self.regularizer:
                     avg_lasso_loss += self.regularizer.loss
 
-        # Step Scheduler
         if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             self.scheduler.step(train_err)
         else:
@@ -221,13 +243,17 @@ class Trainer:
             self._print_training(epoch, epoch_train_time, avg_loss, train_err, avg_lasso_loss, lr)
 
         if self.wandb_log and self._is_main:
-            self._log_epoch_to_wandb(epoch, train_err, epoch_train_time, avg_loss, avg_lasso_loss, lr, grad_norms, last_grad_payload)
+            self._log_epoch_to_wandb(
+                epoch, train_err, epoch_train_time, avg_loss, avg_lasso_loss, lr,
+                grad_norms, last_grad_payload,
+            )
 
         return train_err, avg_loss, avg_lasso_loss, epoch_train_time
 
     def _compute_training_loss(self, idx, sample, training_loss):
-        if self.regularizer: self.regularizer.reset()
-        
+        if self.regularizer:
+            self.regularizer.reset()
+
         sample = self._prepare_sample(sample)
         self.n_samples += sample["y"].numel() if isinstance(sample["y"], torch.Tensor) else 1
 
@@ -235,7 +261,7 @@ class Trainer:
             out = self.model(**sample["x"])
             if self.epoch == 0 and idx == 0 and self.verbose and self._is_main:
                 print(f"Raw outputs shape: {out.shape}")
-            
+
             out, sample = self._postprocess_output(out, sample)
             loss = training_loss(out, sample["y"])
 
@@ -243,75 +269,15 @@ class Trainer:
             loss += self.regularizer.loss
         return loss
 
-    def evaluate_all(self, epoch, eval_losses, test_loaders, eval_modes, max_autoregressive_steps=None):
-        all_metrics = {}
-        for loader_name, loader in test_loaders.items():
-            mode = eval_modes.get(loader_name, "single_step")
-            all_metrics.update(self.evaluate(eval_losses, loader, log_prefix=loader_name, mode=mode, max_steps=max_autoregressive_steps))
-        
-        if self.verbose or self.wandb_log:
-            self.log_eval(epoch=epoch, eval_metrics=all_metrics)
-        return all_metrics
-    
-    def evaluate(self, loss_dict, data_loader, log_prefix="", epoch=None, mode="single_step", max_steps=None):
-        self.model = self.model.to(self.device)
-        if self.data_processor is not None and self.data_processor.device != self.device:
-            self.data_processor = self.data_processor.to(self.device)
-        
-        self.model.eval()
-        if self.data_processor: self.data_processor.eval()
-
-        errors = {f"{log_prefix}_{k}": 0.0 for k in loss_dict.keys()}
-        self.n_samples = 0
-
-        batch_iter = tqdm(data_loader, desc=f"Eval {log_prefix or 'val'} ({mode})", leave=False, unit="batch") if self._is_main else data_loader
-
-        with torch.no_grad():
-            for sample in batch_iter:
-                step_losses = self.eval_one_batch_autoreg(sample, loss_dict, max_steps) if mode == "autoregressive" else self.eval_one_batch(sample, loss_dict)
-                for loss_name, val_loss in step_losses.items():
-                    errors[f"{log_prefix}_{loss_name}"] += val_loss
-        
-        return {k: v / self.n_samples for k, v in errors.items()}
-
-    def eval_one_batch(self, sample: dict, eval_losses: dict):
-        sample = self._prepare_sample(sample)
-        self.n_samples += sample["y"].numel()
-        
-        out, sample = self._postprocess_output(self.model(**sample["x"]), sample)
-        return {name: loss_fn(out, sample["y"]).item() for name, loss_fn in eval_losses.items()}
-        
-    def eval_one_batch_autoreg(self, sample: dict, eval_losses: dict, max_steps: int=None):
-        step_losses = {loss_name: 0.0 for loss_name in eval_losses.keys()}
-        t = 0
-        max_steps = max_steps or float('inf')
-        sample_counted = False
-
-        while sample is not None and t < max_steps:
-            sample = self._prepare_sample(sample, step=t)
-            if sample is None: break
-            
-            if not sample_counted:
-                self.n_samples += sample["y"].numel()
-                sample_counted = True
-
-            out, sample = self._postprocess_output(self.model(**sample["x"]), sample, step=t)
-            
-            for loss_name, loss_fn in eval_losses.items():
-                step_losses[loss_name] += loss_fn(out, sample["y"]).item()
-            t += 1
-
-        return {k: v / max(1, t) for k, v in step_losses.items()}
-
-    # --- W&B and State Management Helpers --- #
+    # --- W&B and State Management Helpers ---
 
     def _capture_grad_metrics(self):
-        """Helper to compute W&B gradient payloads safely."""
         unwrapped = self.accelerator.unwrap_model(self.model)
         total_norm_sq = 0.0
         payload = {}
         for pname, p in unwrapped.named_parameters():
-            if p.grad is None: continue
+            if p.grad is None:
+                continue
             g = p.grad.detach().float()
             pnorm = g.norm(2).item()
             total_norm_sq += pnorm ** 2
@@ -320,7 +286,7 @@ class Trainer:
             g_flat = g.cpu().reshape(-1).numpy()
             if g_flat.max() != g_flat.min():
                 payload[f"gradients/{key}/hist"] = wandb.Histogram(g_flat)
-        
+
         total_norm = total_norm_sq ** 0.5
         payload["train/grad_norm"] = total_norm
         return total_norm, payload
@@ -333,37 +299,36 @@ class Trainer:
             "train/lr": lr,
             "train/samples_per_sec": self.n_samples / epoch_time if epoch_time > 0 else 0,
         }
-        if avg_lasso is not None: train_payload["train/avg_lasso_loss"] = avg_lasso
+        if avg_lasso is not None:
+            train_payload["train/avg_lasso_loss"] = avg_lasso
         if grad_norms:
             train_payload["train/grad_norm_mean"] = sum(grad_norms) / len(grad_norms)
             train_payload["train/grad_norm_max"] = max(grad_norms)
         if torch.cuda.is_available():
             train_payload["system/gpu_memory_allocated_GB"] = torch.cuda.memory_allocated() / 1e9
             train_payload["system/gpu_memory_reserved_GB"] = torch.cuda.memory_reserved() / 1e9
-            
-        wandb.log({k: _wandb_numeric(v) for k, v in train_payload.items() if v is not None}, step=epoch + 1, commit=False)
+
+        wandb.log(
+            {k: _wandb_numeric(v) for k, v in train_payload.items() if v is not None},
+            step=epoch + 1,
+            commit=False,
+        )
         if last_grad_payload:
             wandb.log(last_grad_payload, step=epoch + 1, commit=False)
 
     def _print_training(self, epoch, time, avg_loss, train_err, avg_lasso_loss=None, lr=None):
         if self._is_main:
             parts = [f"[{epoch}] time={time:.2f}", f"avg_loss={avg_loss:.4f}", f"train_err={train_err:.4f}"]
-            if avg_lasso_loss is not None: parts.append(f"avg_lasso={avg_lasso_loss:.4f}")
-            if lr is not None: parts.append(f"lr={lr:g}")
+            if avg_lasso_loss is not None:
+                parts.append(f"avg_lasso={avg_lasso_loss:.4f}")
+            if lr is not None:
+                parts.append(f"lr={lr:g}")
             print(", ".join(parts))
             sys.stdout.flush()
-    
-    def log_eval(self, epoch: int, eval_metrics: dict):
-        parts = [(m, _wandb_numeric(v)) for m, v in eval_metrics.items() if isinstance(v, (int, float, torch.Tensor))]
-        if self.verbose and parts and self._is_main:
-            print("Eval: " + ", ".join(f"{m}={v:.4f}" for m, v in parts))
-            sys.stdout.flush()
-
-        if self.wandb_log and parts and self._is_main:
-            wandb.log({f"eval/{m}": v for m, v in parts}, step=epoch + 1, commit=False)
 
     def _wandb_log_model_parameters(self, step: int):
-        if not (self.wandb_log and self._is_main): return
+        if not (self.wandb_log and self._is_main):
+            return
         payload = {}
         with torch.no_grad():
             total_param_norm_sq = 0.0
@@ -376,30 +341,37 @@ class Trainer:
                     payload[f"params/{key}/norm"] = pnorm
                     total_param_norm_sq += pnorm ** 2
             payload["params/global_weight_norm"] = total_param_norm_sq ** 0.5
-        if payload: wandb.log(payload, step=step, commit=False)
+        if payload:
+            wandb.log(payload, step=step, commit=False)
 
     def resume_state_from_dir(self, save_dir):
         save_dir = Path(save_dir)
         save_name = "best_model" if (save_dir / "best_model_state_dict.pt").exists() else "model"
         if not (save_dir / f"{save_name}_state_dict.pt").exists():
             raise FileNotFoundError("Error: resume_from_dir expects model.pt or best_model.pt.")
-            
+
         _, self.optimizer, self.scheduler, self.regularizer, resume_epoch = load_training_state(
             save_dir=save_dir, save_name=save_name,
             model=self.accelerator.unwrap_model(self.model),
-            optimizer=self.optimizer, regularizer=self.regularizer, scheduler=self.scheduler
+            optimizer=self.optimizer, regularizer=self.regularizer, scheduler=self.scheduler,
         )
 
         if resume_epoch and resume_epoch > self.start_epoch:
             self.start_epoch = resume_epoch
-            if self.verbose and self._is_main: print(f"Trainer resuming from epoch {resume_epoch}")
+            if self.verbose and self._is_main:
+                print(f"Trainer resuming from epoch {resume_epoch}")
 
     def checkpoint(self, save_dir):
         if self._is_main:
             save_training_state(
-                save_dir=save_dir, save_name='best_model' if self.save_best else "model",
+                save_dir=save_dir,
+                save_name='best_model' if self.save_best else "model",
                 model=self.accelerator.unwrap_model(self.model),
-                optimizer=self.optimizer, scheduler=self.scheduler, regularizer=self.regularizer, epoch=self.epoch
+                optimizer=self.optimizer,
+                scheduler=self.scheduler,
+                regularizer=self.regularizer,
+                epoch=self.epoch,
             )
-            if self.verbose: print(f"[Rank 0]: saved training state to {save_dir}")
+            if self.verbose:
+                print(f"[Rank 0]: saved training state to {save_dir}")
         self.accelerator.wait_for_everyone()

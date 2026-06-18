@@ -43,3 +43,11 @@ loss:
   _target_: torch.nn.MSELoss
   reduction: sum
 
+# Solver used by RolloutTest during training-time rollout evaluation.
+# Only active when data.rollout_val=true and data.time_variate=true.
+# Use fewer steps than evaluate.py (100) to keep training-time cost manageable.
+rollout_eval:
+  solver:
+    _target_: evaluation.solvers.EulerSolver
+    n_steps: 100
+
