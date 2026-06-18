@@ -258,7 +258,6 @@ def main(cfg: DictConfig) -> None:
             wandb.init(
                 project=OmegaConf.select(cfg, "wandb.project", default="flow-matching"),
                 name=wandb_run_name(cfg),
-                id=wandb_run_id(cfg),
                 group=wandb_group(cfg),
                 mode=OmegaConf.select(cfg, "wandb.mode", default="online"),
                 config=OmegaConf.to_container(cfg, resolve=True),
